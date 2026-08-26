@@ -986,7 +986,17 @@ class JointMemoryBridge:
                     glyph = hashlib.sha256(insight_text_full.encode()).hexdigest()[:10]
                     print(f"🌌 Sigil: {glyph} ({dream_source})")
 
-                    insight_urgency_score = self._calculate_insight_urgency(insight_text_full)
+                    # Urgency is a property of the DREAM — what the archive
+                    # surfaced — not of whether the LLM answered. Scoring
+                    # insight_text_full let failures score on the raw ~11KB
+                    # chain while successes scored on a ~1.7KB synthesis: the
+                    # entire >250 leaderboard was failure inflation (393, 359,
+                    # 327... all born synthesis-less), and each inflated score
+                    # raised the percentile gate against the real dreams that
+                    # followed. Same capped material both cases from here on —
+                    # scores after this line are a new era on the board.
+                    scoring_text = ' '.join(frag[:1800] for frag in dream_chain)
+                    insight_urgency_score = self._calculate_insight_urgency(scoring_text)
                     filter_config = self.echo_config.get("urgency_filter", {})
                     urgency_threshold = filter_config.get("threshold", 12) # Upped default
 

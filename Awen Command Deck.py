@@ -1887,6 +1887,10 @@ def llm_stream(c: dict, cloud: bool, messages: list, tools=None):
         payload.pop("stream_options", None)
         r = http.post(url, headers=headers, json=payload, stream=True, timeout=(10, timeout))
     r.raise_for_status()
+    # SSE responses carry no charset header, so requests guesses latin-1 and
+    # shatters every multi-byte character — 🦁 became ð¦ in the chat. The
+    # stream is UTF-8; say so before iter_lines decodes anything.
+    r.encoding = "utf-8"
 
     filt = _ThinkFilter()
     content_parts, calls, usage = [], {}, None
