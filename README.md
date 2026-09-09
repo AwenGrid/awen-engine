@@ -337,18 +337,28 @@ First boot creates empty memory profiles. The engine will start dreaming as soon
 
 ## Feeding it a corpus
 
-The engine keeps **two profiles**: `private` (admin nodes only) and `shared`. Each is a pair of files:
+The engine keeps **three lanes** — `conversations`, `knowledge` and `shared` — and only two of them are ever bulk-ingested. `conversations` fills itself from your chat as you talk and never dreams, so the ingest tools deliberately don't offer it as a target.
 
-- `<profile>_entries.jsonl` — the ledger: one JSON-encoded string per line, append-only, human-readable. **This is the source of truth.**
-- `<profile>_memory_index.faiss` — embeddings of those lines, in the same order.
+| lane | you fill it with | how |
+|---|---|---|
+| `conversations` | chat history | automatic — every turn, plus any import |
+| `knowledge` | your research, notes, maths | `ingest_memory.py` |
+| `shared` | book corpus, bulk texts | `ingest_books.py` |
 
-Line *N* of the ledger must be vector *N* in the index. The engine enforces this invariant at load and refuses to serve a misaligned profile.
+Each lane is a pair of files:
+
+- `<lane>_entries.jsonl` — the ledger: one JSON-encoded string per line, append-only, human-readable. **This is the source of truth.**
+- `<lane>_memory_index.faiss` — embeddings of those lines, in the same order.
+
+Line *N* of the ledger must be vector *N* in the index. The engine enforces this invariant at load and refuses to serve a misaligned lane.
 
 **From a folder of Markdown** (research notes, an Obsidian vault, exported papers):
 
 ```bash
-python ingest_memory.py --profile private
+python ingest_memory.py                 # -> knowledge_entries.jsonl
 ```
+
+`knowledge` is the default; add `--profile shared` to send the same folder to the book lane instead. *(The flag is still spelled `--profile` — it predates the lane rename.)*
 
 Point `MEMORY_ROOT` at your folder. It repairs mojibake, de-garbles OCR letter-spacing, strips page furniture, packs paragraphs into ~1,500-character chunks, tags each chunk with its source file, drops near-duplicate documents, and rejects numeric tables that would otherwise dominate the vector space.
 
@@ -358,7 +368,7 @@ Point `MEMORY_ROOT` at your folder. It repairs mojibake, de-garbles OCR letter-s
 python ingest_books.py --source "path/to/books" --profile shared
 ```
 
-Deduplicates against the other profile too, so the same passage never lands twice.
+Deduplicates against the other lane too, so the same passage never lands twice.
 
 **Then build the index:**
 
