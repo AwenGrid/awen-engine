@@ -80,6 +80,8 @@
 !awen_dreams.html
 # the akashic codex page (the theorem index + audit it reads stay local)
 !awen_codex.html
+# the council chamber (meeting records in councils/ stay local)
+!awen_council.html
 !docs/papers.json
 
 # --- launchers ---

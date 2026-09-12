@@ -114,6 +114,7 @@ function render(){
       <div class="dhead" onclick="toggle('${esc(d.id)}')">
         <span class="dsig">◈ ${esc(d.id)}</span><span class="dagent">${esc(d.agent)}</span>
         <span style="color:var(--dim)">${esc(d.lane)}</span>
+        <a href="/council?seed=dream:${esc(d.id)}" onclick="event.stopPropagation()" style="font-family:var(--mono);font-size:9px;letter-spacing:.14em;color:#e879f9;text-decoration:none;border:1px solid rgba(232,121,249,.45);border-radius:3px;padding:0 6px">⚭ CONVENE</a>
         <span class="durg">${d.urgency}/12</span></div>
       <div class="dmeta">${esc(d.mode)} · ${d.fragments.length} frags · ${when(d.ts)} · ${ago(d.ts)}${d.delivered?'':' · ⏳ queued'}</div>
       ${d.synthesis?`<div class="dsyn">🧵 ${esc(d.synthesis)}</div>`:''}

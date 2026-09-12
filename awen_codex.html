@@ -345,7 +345,7 @@ function render(){
       ${c.painter?`<canvas data-p="${c.painter}"></canvas>`:''}
       <div class="tname">${esc(c.name)}</div>
       <div class="teq">${esc(c.equation)}</div>
-      <div class="tags">${tags.join('')}</div>
+      <div class="tags">${tags.join('')}<a class="tag unaudited" style="text-decoration:none;color:var(--mag);border-color:rgba(232,121,249,.45)" href="/council?seed=theorem:${encodeURIComponent(c.name)}" onclick="event.stopPropagation()">⚭ CONVENE</a></div>
       <div class="tsig">${esc(c.significance)}</div>
       <div class="detail">
         <div><b>DERIVATION</b> ${esc(c.derivation)}</div>

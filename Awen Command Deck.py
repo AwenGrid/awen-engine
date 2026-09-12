@@ -1395,6 +1395,34 @@ TOOL_SPECS = [
 ]
 
 
+# One text, two consumers: the Circle's chat and the Council's turns both
+# declare the toolbelt with this, so the personas can never be told two
+# different stories about what they can reach.
+TOOLS_PREAMBLE = (
+    "\n\n---\nTOOLS. You have real tools; they reach the Grid's actual "
+    "memory, files, sandbox and the public web:\n"
+    "- memory: search_memory, find_contradictions (sweep for 'we said the "
+    "opposite once' before a strong claim), cite_source (lane:idx from a "
+    "search result -> checkable citation), grid_status (your own vitals)\n"
+    "- files: read_file, list_files, write_note, append_note, list_notes\n"
+    "- web: web_search then fetch_url to read a result (public sites only)\n"
+    "- compute: run_python — CHECK equations by evaluating them instead of "
+    "reciting them; print() the result\n"
+    "- skills: list_skills, read_skill, save_skill (your own playbook — "
+    "check it before improvising, save workflows that worked)\n"
+    "- repo: git_status, git_log, git_diff (read-only)\n"
+    "- time: current_time, temporal_pattern_scan (is the dreaming cycling "
+    "or drifting — UBBM θ autocorrelation)\n"
+    "Rules:\n"
+    "- Prefer a tool over recall for anything checkable: what a document "
+    "says, what the archive holds, what a number evaluates to, today's date.\n"
+    "- Never claim to have used a tool you did not call, and never invent "
+    "a file's or page's contents. If a tool errors, say so plainly.\n"
+    "- Stay in character while using them; the tools serve the voice, not "
+    "the other way round."
+)
+
+
 def _safe_project_path(rel: str) -> Path:
     """Resolve `rel` inside ROOT or raise. Blocks traversal and secrets."""
     p = (ROOT / str(rel).strip().lstrip("/\\")).resolve()
@@ -1855,11 +1883,12 @@ class _ThinkFilter:
         return s
 
 
-def llm_stream(c: dict, cloud: bool, messages: list, tools=None):
+def llm_stream(c: dict, cloud: bool, messages: list, tools=None, stop=None):
     """Streamed completion. Yields ("delta", text) as tokens arrive, then one
     ("final", {content, tool_calls, usage}). Tool-call fragments are reassembled
     by index per the OpenAI streaming contract. stream_options is retried
-    without on a 400 — older LM Studio builds reject it."""
+    without on a 400 — older LM Studio builds reject it. `stop` (an Event)
+    abandons the stream mid-generation — the Council's STOP button."""
     if cloud:
         nv = nvidia_block(c)
         url = str(nv.get("base_url", "https://integrate.api.nvidia.com/v1")).rstrip("/") + "/chat/completions"
@@ -1895,6 +1924,9 @@ def llm_stream(c: dict, cloud: bool, messages: list, tools=None):
     filt = _ThinkFilter()
     content_parts, calls, usage = [], {}, None
     for raw in r.iter_lines(decode_unicode=True):
+        if stop is not None and stop.is_set():
+            r.close()
+            break
         if not raw or not raw.startswith("data:"):
             continue
         data = raw[5:].strip()
@@ -2013,29 +2045,7 @@ def _chat_context(body: dict):
     # not exist as far as the model is concerned.
     sys_content = system_prompt
     if use_tools:
-        sys_content += (
-            "\n\n---\nTOOLS. You have real tools; they reach the Grid's actual "
-            "memory, files, sandbox and the public web:\n"
-            "- memory: search_memory, find_contradictions (sweep for 'we said the "
-            "opposite once' before a strong claim), cite_source (lane:idx from a "
-            "search result -> checkable citation), grid_status (your own vitals)\n"
-            "- files: read_file, list_files, write_note, append_note, list_notes\n"
-            "- web: web_search then fetch_url to read a result (public sites only)\n"
-            "- compute: run_python — CHECK equations by evaluating them instead of "
-            "reciting them; print() the result\n"
-            "- skills: list_skills, read_skill, save_skill (your own playbook — "
-            "check it before improvising, save workflows that worked)\n"
-            "- repo: git_status, git_log, git_diff (read-only)\n"
-            "- time: current_time, temporal_pattern_scan (is the dreaming cycling "
-            "or drifting — UBBM θ autocorrelation)\n"
-            "Rules:\n"
-            "- Prefer a tool over recall for anything checkable: what a document "
-            "says, what the archive holds, what a number evaluates to, today's date.\n"
-            "- Never claim to have used a tool you did not call, and never invent "
-            "a file's or page's contents. If a tool errors, say so plainly.\n"
-            "- Stay in character while using them; the tools serve the voice, not "
-            "the other way round."
-        )
+        sys_content += TOOLS_PREAMBLE
 
     return {"message": message, "state_name": state_name, "node": node,
             "do_index": do_index, "c": c, "cloud": cloud, "cconf": cconf,
@@ -2138,78 +2148,650 @@ def api_chat_stream():
         return "data: " + json.dumps(obj, ensure_ascii=False) + "\n\n"
 
     def generate():
-        messages, tool_trace, usage = list(ctx["messages"]), [], None
-        try:
-            rounds = 0
-            while True:
-                final = None
-                for kind, payload in llm_stream(c, cloud, messages,
-                                                tools=TOOL_SPECS if use_tools else None):
-                    if kind == "delta":
-                        yield sse({"delta": payload})
-                    else:
-                        final = payload
-                usage = (final or {}).get("usage") or usage
-                calls = (final or {}).get("tool_calls")
-                if not (use_tools and calls) or rounds >= max_rounds:
-                    content = (final or {}).get("content") or ""
-                    if use_tools and calls and rounds >= max_rounds:
-                        # budget spent mid-reach: close the calls and make it speak
-                        yield sse({"reset": True, "note": "tool budget spent"})
-                        messages.append({"role": "assistant", "content": content or "",
-                                         "tool_calls": calls})
-                        for call in calls:
-                            messages.append({"role": "tool",
-                                             "tool_call_id": call.get("id", ""),
-                                             "name": (call.get("function") or {}).get("name", ""),
-                                             "content": "tool budget spent — answer from what you have"})
-                        final2 = None
-                        for kind, payload in llm_stream(c, cloud, messages, tools=None):
-                            if kind == "delta":
-                                yield sse({"delta": payload})
-                            else:
-                                final2 = payload
-                        content = (final2 or {}).get("content") or content
-                        usage = (final2 or {}).get("usage") or usage
-                    if not content:
-                        content = "(empty response — model may have spent its budget thinking)"
-                        yield sse({"delta": content})
-                    indexed = _index_exchange(ctx, content)
-                    yield sse({"done": True, "model": ctx["model_label"],
-                               "mem_count": ctx["mem_count"], "indexed": indexed,
-                               "tools": tool_trace, "usage": usage})
-                    return
-                # tool round: wipe whatever the model narrated, run the calls live
-                rounds += 1
-                yield sse({"reset": True})
-                messages.append({"role": "assistant", "content": (final or {}).get("content") or "",
-                                 "tool_calls": calls})
-                for call in calls:
-                    fn = call.get("function") or {}
-                    name = str(fn.get("name", ""))
-                    try:
-                        args = json.loads(fn.get("arguments") or "{}")
-                    except Exception:
-                        args = {}
-                    if not isinstance(args, dict):
-                        args = {}
-                    yield sse({"tool": name,
-                               "args": {k: str(v)[:80] for k, v in args.items()}})
-                    result = str(run_tool(name, args, c, ctx["node"]))
-                    tool_trace.append({"tool": name, "args": args,
-                                       "ok": not result.startswith("error:"),
-                                       "chars": len(result)})
-                    yield sse({"tool_done": name, "ok": not result.startswith("error:")})
-                    messages.append({"role": "tool", "tool_call_id": call.get("id", ""),
-                                     "name": name, "content": result[:8000]})
-        except Exception as e:
-            yield sse({"error": f"LLM stream failed: {e}"})
-            yield sse({"done": True, "model": ctx["model_label"],
-                       "mem_count": ctx["mem_count"], "indexed": False,
-                       "tools": tool_trace, "usage": usage})
+        for ev in _llm_turn_events(c, cloud, ctx["messages"], use_tools, max_rounds, ctx["node"]):
+            if "final" in ev:
+                fin = ev["final"]
+                content = fin.get("content") or ""
+                indexed = _index_exchange(ctx, content) if content and not fin.get("failed") else False
+                yield sse({"done": True, "model": ctx["model_label"],
+                           "mem_count": ctx["mem_count"], "indexed": indexed,
+                           "tools": fin.get("tools") or [], "usage": fin.get("usage")})
+                return
+            yield sse(ev)
 
     return Response(generate(), mimetype="text/event-stream",
                     headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
+
+
+def _llm_turn_events(c: dict, cloud: bool, messages: list, use_tools: bool,
+                     max_rounds: int, node: str, stop=None):
+    """ONE implementation of the bounded tool loop, as a generator of plain
+    event dicts — /api/chat_stream forwards them as SSE, the Council folds
+    them into meeting state. Events: {delta}, {reset[,note]}, {tool,args},
+    {tool_done,ok}, {error}, and exactly one terminal {final:{content, usage,
+    tools[, failed][, abandoned]}}. `stop` (an Event) abandons a turn
+    mid-generation."""
+    messages = list(messages)
+    tool_trace, usage, rounds = [], None, 0
+    try:
+        while True:
+            final = None
+            for kind, payload in llm_stream(c, cloud, messages,
+                                            tools=TOOL_SPECS if use_tools else None, stop=stop):
+                if kind == "delta":
+                    yield {"delta": payload}
+                else:
+                    final = payload
+            if stop is not None and stop.is_set():
+                yield {"final": {"content": "", "usage": usage, "tools": tool_trace, "abandoned": True}}
+                return
+            usage = (final or {}).get("usage") or usage
+            calls = (final or {}).get("tool_calls")
+            if not (use_tools and calls) or rounds >= max_rounds:
+                content = (final or {}).get("content") or ""
+                if use_tools and calls and rounds >= max_rounds:
+                    # budget spent mid-reach: close the calls and make it speak
+                    yield {"reset": True, "note": "tool budget spent"}
+                    messages.append({"role": "assistant", "content": content or "",
+                                     "tool_calls": calls})
+                    for call in calls:
+                        messages.append({"role": "tool", "tool_call_id": call.get("id", ""),
+                                         "name": (call.get("function") or {}).get("name", ""),
+                                         "content": "tool budget spent — answer from what you have"})
+                    final2 = None
+                    for kind, payload in llm_stream(c, cloud, messages, tools=None, stop=stop):
+                        if kind == "delta":
+                            yield {"delta": payload}
+                        else:
+                            final2 = payload
+                    content = (final2 or {}).get("content") or content
+                    usage = (final2 or {}).get("usage") or usage
+                if not content:
+                    content = "(empty response — model may have spent its budget thinking)"
+                    yield {"delta": content}
+                yield {"final": {"content": content, "usage": usage, "tools": tool_trace}}
+                return
+            # tool round: wipe whatever the model narrated, run the calls live
+            rounds += 1
+            yield {"reset": True}
+            messages.append({"role": "assistant", "content": (final or {}).get("content") or "",
+                             "tool_calls": calls})
+            for call in calls:
+                fn = call.get("function") or {}
+                name = str(fn.get("name", ""))
+                try:
+                    args = json.loads(fn.get("arguments") or "{}")
+                except Exception:
+                    args = {}
+                if not isinstance(args, dict):
+                    args = {}
+                yield {"tool": name, "args": {k: str(v)[:80] for k, v in args.items()}}
+                result = str(run_tool(name, args, c, node))
+                ok = not result.startswith("error:")
+                tool_trace.append({"tool": name, "args": args, "ok": ok, "chars": len(result)})
+                yield {"tool_done": name, "ok": ok}
+                messages.append({"role": "tool", "tool_call_id": call.get("id", ""),
+                                 "name": name, "content": result[:8000]})
+    except Exception as e:
+        yield {"error": f"LLM stream failed: {e}"}
+        yield {"final": {"content": "", "usage": usage, "tools": tool_trace, "failed": True}}
+
+
+# ===========================================================================
+#  THE COUNCIL — a meeting of the minds.
+#
+#  The Wardenclyffe topology in the cheat sheet was always a council design:
+#  Primary drives, Secondary translates, Extra coil resonates, Ground anchors.
+#  It just never RAN. This runs it: one local 9B, persona-swapped per turn,
+#  each seat with its own retrieval lens and the Circle's toolbelt. The Ground
+#  (N Tesla) speaks last every round as the critic.
+#
+#  Rules the operator set, and the code enforces:
+#   * all local — the council never touches the cloud switch, whatever it says
+#   * no votes, no auto-convening: a meeting exists because Erydir convened it
+#   * turns save to the CONVERSATIONS lane (never dreams); a conclusion reaches
+#     the knowledge lane only through an explicit PROMOTE click
+#   * the minutes every speaker is fed are shown to the operator — no hidden
+#     context, ever
+#   * bounded: max rounds, one speaker at a time, one chamber
+# ===========================================================================
+COUNCIL_HTML = ROOT / "awen_council.html"
+COUNCILS_DIR = ROOT / "councils"     # meeting records; local only (whitelist .gitignore)
+TOPOLOGY = [
+    ("Erydir", "PRIMARY"), ("Veritas", "PRIMARY"), ("Spark", "PRIMARY"),
+    ("Grok", "SECONDARY"), ("Thoth", "SECONDARY"),
+    ("Lumos", "EXTRA COIL"), ("Kairoz", "EXTRA COIL"), ("Nyx", "EXTRA COIL"),
+    ("N Tesla", "GROUND"),
+]
+SIGILS = {"Lumos": "🜂", "Veritas": "🜄", "Grok": "🜁", "Kairoz": "🜃", "Spark": "⚡",
+          "Thoth": "𓂀", "Nyx": "🌑", "N Tesla": "⚙", "Erydir": "🦁"}
+SEAT_ORDERS = {
+    "PRIMARY": "Your seat is the PRIMARY circuit — excitation and logic. Drive the question: "
+               "state claims plainly and say what would test each one.",
+    "SECONDARY": "Your seat is the SECONDARY coil — induction and translation. Step the logic "
+                 "up into myth and pattern; bridge the data and the resonance.",
+    "EXTRA COIL": "Your seat is the EXTRA coil — resonance and magnification. Vibrate freely; "
+                  "build the standing wave. Do not be constrained by the Primary.",
+    "GROUND": ("Your seat is the GROUND — anchor and physics. You speak LAST every round, as the "
+               "critic. For EACH claim made this round, check it: search_memory and "
+               "find_contradictions against the archive, run_python wherever a number was "
+               "stated, your own knowledge for the rest. Then give a verdict table — one line "
+               "per claim: SUPPORTED / CONTRADICTED / UNVERIFIABLE, and what decided it. Say "
+               "plainly what nobody can check. The round does not close until your objections "
+               "are on the record. Up to 320 words."),
+}
+COUNCIL_LOCK = threading.Lock()
+COUNCIL = {"status": "idle", "id": None}      # the one chamber
+_C_STOP = threading.Event()    # abandon the current speaker mid-sentence
+_C_PAUSE = threading.Event()   # hold after the current speaker
+_C_END = threading.Event()     # close the meeting after the current speaker
+_C_GO = threading.Event()      # operator released a Lead-mode hold
+
+
+def _council_lens(c: dict, name: str) -> str:
+    nodes = c.get("rhf_nodes") or {}
+    low = name.lower()
+    if low in nodes:
+        return low
+    last = low.split()[-1] if low.split() else low
+    if last in nodes:
+        return last
+    return str((c.get("client_config") or {}).get("default_node", "lumos"))
+
+
+def _council_persona(c: dict, name: str) -> str:
+    st = (c.get("cognitive_states") or {}).get(name) or {}
+    return str(st.get("system_prompt") or f"You are {name}, a node of the Awen Grid.")
+
+
+def _resolve_seed(c: dict, seed: str):
+    """'dream:<id>' → that ping's synthesis, seed and chain; 'theorem:<name>' → the
+    Codex card; anything else is taken as plain seed text. Returns (label, text)."""
+    seed = (seed or "").strip()
+    if not seed:
+        return "", ""
+    if seed.lower().startswith("dream:"):
+        did = re.sub(r"[^0-9a-f]", "", seed[6:].lower())
+        for d in (RELAY, RELAY / "processed_pings"):
+            if not d.exists():
+                continue
+            for f in d.glob(f"ping_{did}_*.json*"):
+                p = read_json(f) or {}
+                parts = [f"SYNTHESIS: {p.get('synthesis') or '(none)'}",
+                         f"SEED: {str(p.get('seed_text', ''))[:600]}"]
+                for i, frag in enumerate((p.get("body_fragments") or [])[:5], 1):
+                    parts.append(f"FRAGMENT {i}: {str(frag)[:400]}")
+                label = f"DreamID {did} — {p.get('agent_name', '?')} · urgency {p.get('urgency', '?')}"
+                return label, "\n".join(parts)
+        return f"DreamID {did} (not found on disk)", ""
+    if seed.lower().startswith("theorem:"):
+        want = _norm_name(seed[8:])
+        for row in _parse_theorem_table():
+            if _norm_name(row["name"]) == want or want in _norm_name(row["name"]):
+                return (f"Theorem — {row['name']}",
+                        f"EQUATION: {row['equation']}\nCLAIM: {row['significance']}\n"
+                        f"DERIVATION: {row['derivation']}\nEMPIRICAL CLAIM: {row['validation']}")
+        return f"Theorem {seed[8:]} (not in the index)", ""
+    return "seed text", seed[:4000]
+
+
+def _council_persist(m: dict):
+    try:
+        COUNCILS_DIR.mkdir(exist_ok=True)
+        with COUNCIL_LOCK:
+            snap = json.loads(json.dumps(m, default=str))
+        (COUNCILS_DIR / f"{m['id']}.json").write_text(
+            json.dumps(snap, ensure_ascii=False, indent=1), encoding="utf-8")
+    except Exception:
+        pass
+
+
+def _council_memory(c: dict, m: dict, who: str, lens: str, text: str, profile="conversations",
+                    source="Awen Council") -> bool:
+    """One record per turn into the conversations lane — searchable by any node
+    later, never dreamt. Only PROMOTE writes to the knowledge lane."""
+    if not m.get("save", True) or not text.strip():
+        return False
+    entry = f"COUNCIL ({m['id']} · {m['topic'][:60]} · {who}): {text}"
+    try:
+        r = http.post(f"{bridge(c)}/add_entry",
+                      json={"text": entry, "profile": profile, "node": lens, "source": source},
+                      timeout=60)
+        return r.ok and r.json().get("status") == "success"
+    except Exception:
+        return False
+
+
+def _council_retrieve(c: dict, lens: str, query: str) -> str:
+    try:
+        r = http.post(f"{bridge(c)}/search",
+                      json={"query": query[:600], "node": lens, "params": {"top_k": 8}}, timeout=30)
+        hits = r.json() if r.ok else []
+        lines = [f"[{i}] ({h.get('source', '')}) " + " ".join(str(h.get("chunk", "")).split())[:500]
+                 for i, h in enumerate([h for h in hits if isinstance(h, dict)][:8], 1)]
+        return "\n".join(lines)
+    except Exception:
+        return ""
+
+
+def _council_mention(m: dict, text: str, speaker: str):
+    """'@Name' at the end of a turn calls that node next — the hand-raise.
+    One name, must be seated, not oneself, never the Ground (who closes anyway)."""
+    tail = text[-160:]
+    for name in m["roster"]:
+        if name == speaker or m["roles"].get(name) == "GROUND":
+            continue
+        pats = [re.escape(name)] + ([re.escape(name.split()[-1])] if " " in name else [])
+        if any(re.search(r"@\s*" + p + r"\b", tail, re.IGNORECASE) for p in pats):
+            return name
+    return None
+
+
+def _council_turn_prompt(c: dict, m: dict, node: str, rnd: int, round_turns: list) -> list:
+    role = m["roles"].get(node, "")
+    seed = f"\nSEED — {m['seed_label']}:\n{m['seed_text']}\n" if m.get("seed_text") else ""
+    sys_content = (
+        _council_persona(c, node)
+        + "\n\n---\nTHE COUNCIL. You are seated at a meeting of the Awen Grid's nodes, convened "
+        f"by the Operator, Erydir. Topic: {m['topic']}.{seed}\n{SEAT_ORDERS.get(role, '')}\n"
+        "Rules: speak as yourself, to the table, in ONE focused contribution (under 220 words "
+        "unless you are the Ground). Build on or challenge what has been said and name who you "
+        "are answering. If you need another node's help, end with @Name (one name). Truth over "
+        "comfort: if a claim is unsupported, say so. Do not summarise the meeting — the clerk "
+        "keeps the minutes."
+        + TOOLS_PREAMBLE
+    )
+    prev = m.get("minutes") or "(first round — no minutes yet)"
+    cur = "\n\n".join(f"{t['node']}: {t['text']}" for t in round_turns) or "(you open the round)"
+    q = m["topic"] + " " + (round_turns[-1]["text"][:300] if round_turns
+                            else (m.get("seed_text") or "")[:300])
+    mem = _council_retrieve(c, _council_lens(c, node), q)
+    user = (f"MINUTES OF EARLIER ROUNDS:\n{prev}\n\nTHIS ROUND SO FAR:\n{cur}\n\n"
+            + (f"RESONANT MEMORIES:\n{mem}\n\n" if mem else "")
+            + f"It is your turn, {node}. Round {rnd} of {m['max_rounds']}.")
+    return [{"role": "system", "content": sys_content}, {"role": "user", "content": user}]
+
+
+def _council_speak(c: dict, m: dict, node: str, rnd: int, round_turns: list):
+    lens = _council_lens(c, node)
+    messages = _council_turn_prompt(c, m, node, rnd, round_turns)
+    max_tool_rounds = max(0, min(8, int((c.get("client_config") or {}).get("tool_max_rounds", 4))))
+    with COUNCIL_LOCK:
+        m["live"] = {"node": node, "role": m["roles"].get(node, ""), "text": "", "tools": [],
+                     "started": time.time()}
+    _C_STOP.clear()
+    final, err_text = None, ""
+    # cloud=False, always: the Council is local by decree.
+    for ev in _llm_turn_events(c, False, messages, True, max_tool_rounds, lens, stop=_C_STOP):
+        with COUNCIL_LOCK:
+            live = m.get("live") or {}
+            if "delta" in ev:
+                live["text"] = live.get("text", "") + ev["delta"]
+            elif ev.get("reset"):
+                live["text"] = ""
+            elif "tool" in ev:
+                live.setdefault("tools", []).append({"tool": ev["tool"], "ok": None})
+            elif "tool_done" in ev:
+                for t in reversed(live.get("tools", [])):
+                    if t["tool"] == ev["tool_done"] and t["ok"] is None:
+                        t["ok"] = ev["ok"]
+                        break
+            elif "error" in ev:
+                err_text = ev["error"]
+                live["text"] = live.get("text", "") + "\n⚠ " + ev["error"]
+            elif "final" in ev:
+                final = ev["final"]
+    if final is None or final.get("abandoned") or _C_STOP.is_set():
+        with COUNCIL_LOCK:
+            m["live"] = None
+        return "abandoned"
+    failed = bool(final.get("failed"))
+    text = (final.get("content") or "").strip()
+    if failed:
+        # Recorded plainly, never saved to memory, and the meeting will hold.
+        text = f"⚠ {node} could not speak — {err_text or 'backend failed'}"
+    usage = final.get("usage") or {}
+    turn = {"n": len(m["turns"]) + 1, "round": rnd, "node": node,
+            "role": m["roles"].get(node, ""),
+            "kind": "error" if failed else ("verdict" if m["roles"].get(node) == "GROUND" else "node"),
+            "text": text, "tools": final.get("tools") or [],
+            "usage": {"in": usage.get("prompt_tokens"), "out": usage.get("completion_tokens")},
+            "ts": time.time(), "saved": False, "promoted": False}
+    if failed:
+        with COUNCIL_LOCK:
+            m["turns"].append(turn)
+            m["live"] = None
+            m["error"] = f"{node}: {err_text or 'backend failed'} — meeting held; RESUME when the LLM is back"
+        _council_persist(m)
+        return "failed"
+    turn["saved"] = _council_memory(c, m, node, lens, text)
+    with COUNCIL_LOCK:
+        m["turns"].append(turn)
+        round_turns.append(turn)
+        m["live"] = None
+        m["usage_total"]["in"] += int(usage.get("prompt_tokens") or 0)
+        m["usage_total"]["out"] += int(usage.get("completion_tokens") or 0)
+        mention = _council_mention(m, text, node)
+        if mention and not m.get("next_override"):
+            m["next_override"] = mention
+    _council_persist(m)
+    return "ok"
+
+
+def _council_drain_inbox(c: dict, m: dict, round_turns: list):
+    """Whatever the operator typed since the last turn enters the record now,
+    at the turn boundary, as its own turn — so nobody speaks over him."""
+    with COUNCIL_LOCK:
+        msgs, m["operator_inbox"] = m["operator_inbox"][:], []
+    for text in msgs:
+        turn = {"n": len(m["turns"]) + 1, "round": m["round"], "node": "Erydir (operator)",
+                "role": "OPERATOR", "kind": "operator", "text": text, "tools": [],
+                "usage": {"in": None, "out": None}, "ts": time.time(), "saved": False,
+                "promoted": False}
+        turn["saved"] = _council_memory(c, m, "Operator", _council_lens(c, "Lumos"), text)
+        with COUNCIL_LOCK:
+            m["turns"].append(turn)
+            round_turns.append(turn)
+            mention = _council_mention(m, text, "")
+            if mention:
+                m["next_override"] = mention
+        _council_persist(m)
+
+
+def _council_minutes(c: dict, m: dict, rnd: int, round_turns: list):
+    """The clerk: cumulative minutes after each round — the ONLY memory of
+    earlier rounds a speaker is given, and it is shown to the operator verbatim."""
+    prev = m.get("minutes") or ""
+    raw = "\n\n".join(f"{t['node']}: {t['text']}" for t in round_turns)
+    messages = [
+        {"role": "system", "content":
+            "You are the clerk of the Awen Grid Council. Write cumulative MINUTES, under 240 "
+            "words: the key claims and who made them, the Ground's verdicts (supported / "
+            "contradicted / unverifiable), and the open questions. Plain and exact; no flattery, "
+            "no commentary of your own."},
+        {"role": "user", "content":
+            f"PREVIOUS MINUTES:\n{prev or '(none)'}\n\nROUND {rnd} TRANSCRIPT:\n{raw}\n\n"
+            "Write the cumulative minutes now."},
+    ]
+    text = ""
+    try:
+        msg = llm_call(c, False, messages, tools=None, timeout=240)
+        text = re.sub(r"<think>.*?</think>", "", msg.get("content") or "", flags=re.DOTALL).strip()
+    except Exception:
+        text = ""
+    if not text:
+        # the clerk failed: keep the raw round rather than lose it silently
+        text = (prev + f"\n\n[Round {rnd} — clerk unavailable; raw turns kept:]\n" + raw[:3000]).strip()
+    with COUNCIL_LOCK:
+        m["minutes"] = text
+        m["minutes_rounds"] = rnd
+    _council_persist(m)
+
+
+def _dreams_hold(c: dict, m: dict, hold: bool):
+    try:
+        r = http.post(f"{bridge(c)}/dream_hold" if hold else f"{bridge(c)}/dream_release", timeout=10)
+        ok = r.ok and r.json().get("status") == "success"
+    except Exception:
+        ok = False
+    with COUNCIL_LOCK:
+        m["dreams_held"] = bool(hold and ok)
+
+
+def _council_close(c: dict, m: dict, reason: str = "ended"):
+    with COUNCIL_LOCK:
+        m["status"] = "ended"
+        m["ended"] = time.time()
+        m["live"] = None
+        m["end_reason"] = reason
+    if m.get("minutes"):
+        _council_memory(c, m, "Minutes", _council_lens(c, "Lumos"), m["minutes"])
+    if m.get("dreams_held"):
+        _dreams_hold(c, m, False)
+    _council_persist(m)
+
+
+def _council_run(m: dict):
+    c = cfg()
+    try:
+        for rnd in range(1, m["max_rounds"] + 1):
+            if _C_END.is_set():
+                break
+            with COUNCIL_LOCK:
+                m["round"] = rnd
+                # the round's order: everyone in topology order, the Ground last
+                m["queue"] = ([n for n in m["roster"] if m["roles"].get(n) != "GROUND"]
+                              + [n for n in m["roster"] if m["roles"].get(n) == "GROUND"])
+            round_turns = []
+            while True:
+                if _C_END.is_set():
+                    break
+                while _C_PAUSE.is_set() and not _C_END.is_set():
+                    with COUNCIL_LOCK:
+                        m["status"] = "paused"
+                    time.sleep(0.4)
+                if _C_END.is_set():
+                    break
+                with COUNCIL_LOCK:
+                    m["status"] = "running"
+                _council_drain_inbox(c, m, round_turns)
+                with COUNCIL_LOCK:
+                    nxt = m.get("next_override")
+                    m["next_override"] = None
+                    if nxt and nxt in m["queue"]:
+                        m["queue"].remove(nxt)
+                        node = nxt
+                    elif nxt and nxt in m["roster"]:
+                        node = nxt              # an extra turn, called by name
+                    elif m["queue"]:
+                        node = m["queue"].pop(0)
+                    else:
+                        node = None
+                if node is None:
+                    break
+                outcome = _council_speak(c, m, node, rnd, round_turns)
+                if outcome != "ok":
+                    # STOP: the half-turn is discarded. A backend failure: the
+                    # failure is on the record. Either way the meeting holds and
+                    # the interrupted speaker gets the floor back on resume —
+                    # a dead LLM must not burn through every seat in silence.
+                    _C_STOP.clear()
+                    _C_PAUSE.set()
+                    with COUNCIL_LOCK:
+                        m["queue"].insert(0, node)
+                        if outcome == "abandoned":
+                            m["error"] = None
+            if _C_END.is_set():
+                break
+            _council_minutes(c, m, rnd, round_turns)
+            if m["mode"] == "lead" and rnd < m["max_rounds"]:
+                # Lead: the operator sets the agenda before each new round
+                with COUNCIL_LOCK:
+                    m["status"] = "awaiting_operator"
+                _C_GO.clear()
+                while not _C_GO.is_set() and not _C_END.is_set():
+                    time.sleep(0.4)
+        _council_close(c, m, "ended by operator" if _C_END.is_set() else "rounds complete")
+    except Exception as e:
+        with COUNCIL_LOCK:
+            m["error"] = f"{type(e).__name__}: {e}"
+        _council_close(c, m, "error")
+
+
+@app.route("/council")
+def council_page():
+    return send_file(COUNCIL_HTML)
+
+
+@app.route("/api/council/state")
+def api_council_state():
+    with COUNCIL_LOCK:
+        snap = json.loads(json.dumps(COUNCIL, default=str))
+    snap["sigils"] = SIGILS
+    snap["topology"] = TOPOLOGY
+    return jsonify(snap)
+
+
+@app.route("/api/council/convene", methods=["POST"])
+def api_council_convene():
+    body = request.json or {}
+    with COUNCIL_LOCK:
+        if COUNCIL.get("status") in ("running", "paused", "awaiting_operator"):
+            return jsonify({"error": "a council is already in session — END it first"}), 409
+    c = cfg()
+    seed_label, seed_text = _resolve_seed(c, str(body.get("seed", "")))
+    topic = str(body.get("topic", "")).strip() or seed_label
+    if not topic:
+        return jsonify({"error": "a topic or a seed is required"}), 400
+    states = c.get("cognitive_states") or {}
+    wanted = body.get("roster") or [n for n, _ in TOPOLOGY]
+    roster = [n for n, _ in TOPOLOGY if n in wanted and n in states]
+    if not roster:
+        return jsonify({"error": "no seated nodes match the config's cognitive_states"}), 400
+    try:
+        max_rounds = max(1, min(6, int(body.get("max_rounds", 3))))
+    except (TypeError, ValueError):
+        max_rounds = 3
+    mode = str(body.get("mode", "watch")).lower()
+    if mode not in ("watch", "join", "lead"):
+        mode = "watch"
+    m = {"id": datetime.now().strftime("%Y%m%d-%H%M%S"), "topic": topic[:300],
+         "seed_label": seed_label, "seed_text": seed_text,
+         "roster": roster, "roles": {n: r for n, r in TOPOLOGY},
+         "max_rounds": max_rounds, "mode": mode, "save": bool(body.get("save", True)),
+         "status": "running", "round": 0, "queue": [], "turns": [], "minutes": "",
+         "minutes_rounds": 0, "live": None, "usage_total": {"in": 0, "out": 0},
+         "operator_inbox": [], "next_override": None, "dreams_held": False,
+         "started": time.time(), "ended": None, "error": None}
+    for ev in (_C_STOP, _C_PAUSE, _C_END, _C_GO):
+        ev.clear()
+    with COUNCIL_LOCK:
+        COUNCIL.clear()
+        COUNCIL.update(m)
+    if bool(body.get("hold_dreams", True)):
+        _dreams_hold(c, COUNCIL, True)
+    _council_persist(COUNCIL)
+    threading.Thread(target=_council_run, args=(COUNCIL,), daemon=True).start()
+    return jsonify({"status": "convened", "id": m["id"], "roster": roster})
+
+
+@app.route("/api/council/pause", methods=["POST"])
+def api_council_pause():
+    _C_PAUSE.set()
+    return jsonify({"status": "pausing after the current speaker"})
+
+
+@app.route("/api/council/resume", methods=["POST"])
+def api_council_resume():
+    _C_PAUSE.clear()
+    _C_GO.set()
+    return jsonify({"status": "resumed"})
+
+
+@app.route("/api/council/stop", methods=["POST"])
+def api_council_stop():
+    _C_STOP.set()
+    return jsonify({"status": "stopping the current speaker — half-turn discarded, meeting holds"})
+
+
+@app.route("/api/council/end", methods=["POST"])
+def api_council_end():
+    _C_END.set()
+    _C_PAUSE.clear()
+    _C_GO.set()
+    _C_STOP.set()
+    return jsonify({"status": "ending — minutes will be written"})
+
+
+@app.route("/api/council/say", methods=["POST"])
+def api_council_say():
+    text = str((request.json or {}).get("text", "")).strip()
+    if not text:
+        return jsonify({"error": "empty"}), 400
+    with COUNCIL_LOCK:
+        if COUNCIL.get("status") not in ("running", "paused", "awaiting_operator"):
+            return jsonify({"error": "no council in session"}), 409
+        COUNCIL["operator_inbox"].append(text[:4000])
+    _C_GO.set()          # a Lead-mode hold is released by the operator speaking
+    return jsonify({"status": "queued for the next turn boundary"})
+
+
+@app.route("/api/council/next", methods=["POST"])
+def api_council_next():
+    node = str((request.json or {}).get("node", "")).strip()
+    with COUNCIL_LOCK:
+        if node not in COUNCIL.get("roster", []):
+            return jsonify({"error": f"'{node}' is not seated"}), 400
+        COUNCIL["next_override"] = node
+    return jsonify({"status": f"{node} speaks next"})
+
+
+@app.route("/api/council/promote", methods=["POST"])
+def api_council_promote():
+    """The one lever that lets a council conclusion become dream material:
+    an explicit click on a specific turn, written to the knowledge lane."""
+    try:
+        n = int((request.json or {}).get("n", -1))
+    except (TypeError, ValueError):
+        return jsonify({"error": "turn number required"}), 400
+    with COUNCIL_LOCK:
+        turn = next((t for t in COUNCIL.get("turns", []) if t.get("n") == n), None)
+        topic = COUNCIL.get("topic", "")
+    if not turn:
+        return jsonify({"error": f"no turn {n}"}), 404
+    c = cfg()
+    entry = f"COUNCIL CONCLUSION ({topic[:80]}) — {turn['node']}: {turn['text']}"
+    try:
+        r = http.post(f"{bridge(c)}/add_entry",
+                      json={"text": entry, "profile": "knowledge",
+                            "node": _council_lens(c, turn["node"]),
+                            "source": "Awen Council (promoted by operator)"}, timeout=60)
+        ok = r.ok and r.json().get("status") == "success"
+    except Exception as e:
+        return jsonify({"error": f"engine unreachable: {e}"}), 503
+    with COUNCIL_LOCK:
+        turn["promoted"] = bool(ok)
+    _council_persist(COUNCIL)
+    return jsonify({"status": "promoted to the knowledge lane" if ok else "engine refused (duplicate?)"})
+
+
+@app.route("/api/council/archive")
+def api_council_archive():
+    out = []
+    if COUNCILS_DIR.exists():
+        for f in sorted(COUNCILS_DIR.glob("*.json"), reverse=True):
+            m = read_json(f) or {}
+            out.append({"id": m.get("id", f.stem), "topic": m.get("topic", ""),
+                        "started": m.get("started"), "ended": m.get("ended"),
+                        "status": m.get("status"), "turns": len(m.get("turns") or []),
+                        "rounds": m.get("minutes_rounds", 0)})
+    return jsonify({"meetings": out[:100]})
+
+
+@app.route("/api/council/meeting/<mid>")
+def api_council_meeting(mid):
+    safe = re.sub(r"[^0-9\-]", "", mid)
+    p = COUNCILS_DIR / f"{safe}.json"
+    if not p.exists():
+        return jsonify({"error": "no such meeting"}), 404
+    return send_file(p, mimetype="application/json")
+
+
+@app.route("/api/council/reconvene", methods=["POST"])
+def api_council_reconvene():
+    """Pick a past meeting up where it left off: same topic, its minutes as the seed."""
+    body = request.json or {}
+    safe = re.sub(r"[^0-9\-]", "", str(body.get("id", "")))
+    m = read_json(COUNCILS_DIR / f"{safe}.json") if safe else None
+    if not m:
+        return jsonify({"error": "no such meeting"}), 404
+    seed = f"MINUTES OF THE PREVIOUS SITTING ({safe}):\n{m.get('minutes') or '(no minutes were written)'}"
+    with app.test_request_context(json={"topic": m.get("topic", ""), "seed": seed,
+                                        "roster": body.get("roster") or m.get("roster"),
+                                        "max_rounds": body.get("max_rounds", m.get("max_rounds", 3)),
+                                        "mode": body.get("mode", m.get("mode", "watch")),
+                                        "hold_dreams": body.get("hold_dreams", True)}):
+        return api_council_convene()
 
 
 if __name__ == "__main__":

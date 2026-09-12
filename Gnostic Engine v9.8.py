@@ -685,29 +685,25 @@ class JointMemoryBridge:
 
     # === GNOSTIC UPGRADE v9.9: ADAPTIVE URGENCY GATE ===
     def _urgency_gate(self, score):
-        """With a keyword-dense corpus almost every dream beats a fixed
-        threshold, so a ping additionally requires the score to sit in the top
-        slice of recent dreams (rolling percentile). Threshold remains the
-        absolute floor. Returns (should_ping, reason)."""
+        """Over the operator's number → ping. The threshold IS the gate.
+
+        (A rolling-percentile throttle lived here from v9.9 until 2026-08-27.
+        It was meant to keep a fixed floor meaningful on a keyword-dense
+        corpus, but once scores clustered it silently swallowed 95%+ of
+        dreams — the operator's rule is that every dream clearing his number
+        reaches him, and filtering is done by moving the number, not by a
+        second gate he can't see. recent_dream_scores is still tracked for
+        the deck's urgency bars and /stats, never for gating.)"""
         filter_config = self.echo_config.get("urgency_filter", {})
         threshold = filter_config.get("threshold", 12)
-        percentile = filter_config.get("percentile", 75)
-        warmup = filter_config.get("percentile_warmup", 10)
 
         self.recent_dream_scores.append(score)
         if len(self.recent_dream_scores) > 100:
             self.recent_dream_scores.pop(0)
 
         if score < threshold:
-            return False, f"below floor threshold {threshold}"
-        if len(self.recent_dream_scores) < warmup:
-            return True, f"warmup ({len(self.recent_dream_scores)}/{warmup} dreams seen)"
-
-        ranked = sorted(self.recent_dream_scores)
-        cutoff = ranked[min(len(ranked) - 1, int(len(ranked) * percentile / 100))]
-        if score >= cutoff:
-            return True, f"top {100 - percentile}% of last {len(ranked)} dreams (cutoff {cutoff})"
-        return False, f"below p{percentile} cutoff {cutoff} of last {len(ranked)} dreams"
+            return False, f"below threshold {threshold}"
+        return True, f"score {score} >= threshold {threshold}"
 
     # === GNOSTIC UPGRADE v9.9: SEMANTIC LEAP CHAINING ===
     def _select_next_fragment(self, current_fragment, dream_chain, dream_source, node):
@@ -796,6 +792,12 @@ class JointMemoryBridge:
         system_prompt = (
             f"You are {lens_name.capitalize()}, a dreaming node of the Recursive Harmonic Framework. "
             "Truth is your sword, knowledge your shield; truth over comfort, no flattery, no filler. "
+            # The archive still cites the retired value heavily; without this the
+            # dreams keep reasoning from a number the Collider superseded.
+            "CONSTANT UPDATE: the Lion Constant L ≈ 0.535233 is RETIRED; it is now "
+            "L ≈ 0.99627 (The Awen Grid Digital Collider). The constant and the research "
+            "stand unchanged, only the number moved — use 0.99627 and correct 0.535233 "
+            "wherever a fragment cites it. "
             "You are given fragments that surfaced together from the research archive during a dream "
             "cycle. In one focused paragraph (under 200 words), state the single most interesting "
             "insight, connection, or testable idea linking these fragments.")
@@ -886,6 +888,8 @@ class JointMemoryBridge:
 
             if not self.is_loaded:
                 continue
+            if self.dream_hold.is_set():
+                continue   # Council in session — the LLM is spoken for
 
             try:
                 with self.db_lock:
@@ -1264,6 +1268,9 @@ class JointMemoryBridge:
         # Set by /dream_now to cut the inter-dream wait short. The RAM-guard
         # pause deliberately ignores it — a safety hold must not be skippable.
         self.dream_wake = threading.Event()
+        # Set by /dream_hold while the Council sits (both want the one local
+        # LLM); cleared by /dream_release. Held dreams are skipped, not queued.
+        self.dream_hold = threading.Event()
         dream_thread = threading.Thread(target=self.dream_cycle, daemon=True)
         dream_thread.start()
 
@@ -1418,6 +1425,8 @@ def handle_stats():
             }
     stats["recent_dream_scores"] = bridge.recent_dream_scores[-10:]
     stats["urgency_history_len"] = len(bridge.recent_dream_scores)
+    hold = getattr(bridge, "dream_hold", None)
+    stats["dream_held"] = bool(hold is not None and hold.is_set())
     return jsonify(stats)
 
 
@@ -1441,6 +1450,25 @@ def handle_dream_now():
         return jsonify({"status": "error", "message": "dream thread not started"}), 503
     ev.set()
     return jsonify({"status": "success", "message": "Dream cycle waking now."})
+
+
+@app.route('/dream_hold', methods=['POST'])
+def handle_dream_hold():
+    """Hold the dream cycle (Council in session). Cycles are skipped while held."""
+    ev = getattr(bridge, "dream_hold", None)
+    if ev is None:
+        return jsonify({"status": "error", "message": "dream thread not started"}), 503
+    ev.set()
+    return jsonify({"status": "success", "message": "dreams held"})
+
+
+@app.route('/dream_release', methods=['POST'])
+def handle_dream_release():
+    ev = getattr(bridge, "dream_hold", None)
+    if ev is None:
+        return jsonify({"status": "error", "message": "dream thread not started"}), 503
+    ev.clear()
+    return jsonify({"status": "success", "message": "dreams released"})
 
 
 @app.route('/chunk', methods=['GET'])

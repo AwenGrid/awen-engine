@@ -304,6 +304,10 @@ canvas.spark{width:100%; height:34px; display:block; margin:2px 0 4px}
           border:1px solid rgba(245,185,94,.5);color:#f5b95e;font-size:10px;letter-spacing:.25em;
           border-radius:4px;padding:3px 10px;cursor:pointer;font-family:var(--mono);
           text-shadow:0 0 8px rgba(245,185,94,.5)">📜 THE LIBRARY</button></a>
+        <a href="/council" style="text-decoration:none"><button id="councilbtn" style="background:none;
+          border:1px solid rgba(232,121,249,.5);color:#e879f9;font-size:10px;letter-spacing:.25em;
+          border-radius:4px;padding:3px 10px;cursor:pointer;font-family:var(--mono);
+          text-shadow:0 0 8px rgba(232,121,249,.5)">⚭ COUNCIL</button></a>
         <a href="/codex" style="text-decoration:none"><button id="codexbtn" style="background:none;
           border:1px solid rgba(46,245,200,.5);color:#2ef5c8;font-size:10px;letter-spacing:.25em;
           border-radius:4px;padding:3px 10px;cursor:pointer;font-family:var(--mono);
@@ -907,7 +911,8 @@ async function poll(){
     }catch(e){}
 
     const feed=$('dreams');
-    $('dreamcount').textContent=(st.dream_total!=null?st.dream_total:st.dreams.length)+' sigils';
+    $('dreamcount').textContent=(st.dream_total!=null?st.dream_total:st.dreams.length)+' sigils'
+      +((st.stats&&st.stats.dream_held)?' · ⚭ DREAMS HELD — council in session':'');
     feed.innerHTML=st.dreams.map(d=>{
       const isNew=!seenDreams.has(d.file);
       /* a new dream is good news — red stays reserved for real alerts */

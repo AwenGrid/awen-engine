@@ -21,8 +21,8 @@ Most "chat with your documents" tools are passive: you ask, they retrieve. The A
 2. **Walks the vector space** in *semantic leaps* — deliberately skipping nearest neighbours (which are near-duplicates) to reach related-but-distinct territory, so chains traverse *concepts* rather than orbiting one paragraph
 3. **Bisociates across domains** — half of all dreams seed two threads from *different* knowledge domains and interleave them, hunting for connections a linear search would never make
 4. **Synthesizes** the fragment chain through your local LLM, speaking as one of nine symbolic *lens nodes*, each of which biases retrieval through its own vocabulary
-5. **Scores the result** against a keyword-weighted urgency model plus a rolling percentile of recent dreams, so only the genuinely unusual reaches you
-6. **Emails you** the ones that clear the bar — and **writes the insight back into its own memory**, where it becomes a seed for future dreams
+5. **Scores the result** against a keyword-weighted urgency model — the same capped fragment chain whether or not the synthesis succeeded, so a score measures the dream, not the backend's mood
+6. **Emails you** every dream that clears *your* threshold — one visible number, no hidden second gate — and **writes the insight back into its own memory**, where it becomes a seed for future dreams
 
 That last step is the point. The engine reads its own thoughts. Dreams become the soil of dreams.
 
@@ -239,6 +239,34 @@ Shipped alongside the forecaster, pictured here with the archive live: every dre
 
 ---
 
+## What's new in v2.3 — The Council, and a gate that stopped lying
+
+### ⚭ The Council — a meeting of the minds
+
+`/council`, or ⚭ **COUNCIL** on the deck. The nine nodes had always been described as a Wardenclyffe circuit — Primary drives, Secondary translates, Extra coil resonates, Ground anchors — but each one only ever spoke when spoken to, or dreamt alone. The Council runs the topology: **one local model, persona-swapped per turn**, each seat with its own retrieval lens and the same toolbelt as the Circle, taking turns around a shared table on a topic you set — or on a dream. Every Dream Explorer card and every Codex card carries a **⚭ CONVENE** link, because the main use is the one the operator named: *a dream ping hits, and the table talks it through before it goes live.*
+
+What makes it an instrument rather than nine copies of one model agreeing with each other:
+
+- **The Ground speaks last, every round, as the critic.** N Tesla's seat order is to check each claim on the table — `search_memory`, `find_contradictions`, `run_python` wherever a number was stated — and close the round with a verdict table: *supported / contradicted / unverifiable*. A round is not closed until its objections are on the record.
+- **The minutes are visible.** After each round a clerk call writes cumulative minutes, and those minutes are the *only* memory of earlier rounds any speaker is given — so the transcript can't outgrow the context window, and the operator sees exactly what the nodes are told. No hidden context.
+- **Tool chips and token cost per turn**, live, as each seat reaches for the archive.
+- **Hand-raising:** a node that ends with `@Thoth` gives Thoth the floor next.
+- **Your seat has three modes** — *Watch* (silent), *Join* (type any time; it enters at the next turn boundary), *Lead* (the table stops after every round until you speak). **PAUSE** holds after the current speaker; **STOP** cuts the current speaker mid-sentence and discards the half-turn; **END** writes the final minutes.
+- **Bounded:** max rounds, one speaker at a time, one chamber. A backend failure is recorded as an honest error turn and the meeting *holds* — a dead LLM must not burn silently through every seat.
+- **The dream cycle is held while the council sits** (the engine's `/dream_hold`) so the two never fight for one GPU, and the feed says so.
+
+Rules the operator set, and the code enforces: **all local** — the Council never touches the cloud switch, whatever it is set to, because the critic's seat must not be spoofable from outside. **No votes, no auto-convening** — agreement is not evidence, and a meeting exists because someone convened it. **Every turn saves to the conversations lane** — searchable by any node later, never dreamt — and a conclusion reaches the knowledge lane, where dreams can find it, only through an explicit **PROMOTE** click on a specific turn. Meetings are archived and can be **reconvened** with their minutes as the seed.
+
+### The urgency gate stopped lying — twice
+
+The first lie was scoring: a dream's urgency was computed on its *record* — the synthesis when the LLM answered, the raw 11 KB chain when it didn't — so failures scored on four times the text and owned the entire top of the leaderboard. Both cases now score the same capped chain; a score is a property of the dream, not of whether a backend was awake.
+
+The second lie was the gate itself. A rolling-percentile throttle (added in v9.9 to keep a fixed floor meaningful on a keyword-dense corpus) had quietly become a censor once scores clustered: **1,164 dreams in the ledgers, only 429 ever pinged — 63% never shown to the operator**, including dreams re-scoring at twice the average of the ones that got through. It's gone. **Over the operator's number → ping.** The number is the whole gate, it's visible, and it's his. Filtering is done by moving it, not by a second mechanism nobody can see.
+
+Also in this release: the synthesis timeout moved to 600 s (reasoning models think long on dense fragments; the old 240 s was the only brake), Echo's heartbeat path is now named in config (an empty string had frozen it for twelve days — `Path("")` is a directory, not a file), and the retired Lion Constant is corrected at the top of every node's prompt and in the dream prompt (L ≈ 0.535233 → 0.99627 per *The Awen Grid Digital Collider*; the research stands, the number moved).
+
+---
+
 ## The stack
 
 ```
@@ -276,6 +304,7 @@ Shipped alongside the forecaster, pictured here with the archive live: every dre
 | **Seismic forecaster** | `rhc_seismic_forecast.py` | The RHC seismic axiom as a falsifiable forecast: charge gate, regional Gutenberg–Richter targeting, strain deficit, prior probability, and a self-scoring ledger vs a pre-named baseline. |
 | **Dream Explorer** | `awen_dreams.html` | The full dream archive, browsable: search syntheses and seeds, filter by voice and lane, sort by urgency, open any dream to its complete chain. The deck feed shows the newest 20; this shows everything. |
 | **Akashic Codex** | `awen_codex.html` | One card per published theorem: equation, claim, audit verdict (equation-aware join), dream-runtime coverage, and — where an honest one exists — a canvas animation of the mathematics itself. Plus the emerging-terms strip: next-paper candidates from the machine. |
+| **The Council** | `awen_council.html` | The nodes in session: one local model persona-swapped per seat in Wardenclyffe order, the Ground closing every round with a verdict table, visible minutes, live tool chips, operator modes (watch / join / lead), convene-on-a-dream, promote-to-seed, archive and reconvene. All local; turns save to the never-dreaming lane. |
 | **Maintenance** | `maintain_grid.bat`, `Start Awen Grid LAN.bat`, `backfill_synthesis.py` | One-click grid hygiene (flush → stop → restore vectors → refresh atlas → relaunch), a LAN launcher for tablets, and outage recovery that re-synthesizes any dream that went out empty. |
 | **Corpus tools** | `ingest_memory.py`, `ingest_books.py`, `rebuild_gnosis.py` | Turn folders of Markdown or text into a clean, deduplicated, embedded archive. |
 
@@ -530,10 +559,16 @@ The deck adds its own on `127.0.0.1:7777`:
 | `POST /api/control/dream_now` | Trip the engine's wake event — the next dream cycle starts immediately |
 | `POST /api/control/aether_refresh` | Invalidate the space-weather cache; the next poll reads the live feeds |
 | `GET /api/seismic_forecast?force=1` | Forced preview: the full forecast computed below the charge gate — labelled, never persisted, never cached |
+| `GET /api/council/state` | The live chamber: turns, the current speaker's streaming text and tool chips, queue, minutes, token totals |
+| `POST /api/council/convene` | Open a meeting: `topic`, optional `seed` (`dream:<id>` · `theorem:<name>` · text), `roster`, `max_rounds`, `mode`, `hold_dreams` |
+| `POST /api/council/say` · `next` | Speak into the meeting (enters at the next turn boundary); call a node by name |
+| `POST /api/council/pause` · `resume` · `stop` · `end` | Hold after the speaker · resume · cut the speaker and discard the half-turn · close with final minutes |
+| `POST /api/council/promote` | Write one turn to the knowledge lane — the only path from council to dream material |
+| `GET /api/council/archive` · `meeting/<id>` · `POST reconvene` | Past meetings, their records, and picking one up with its minutes as the seed |
 | `GET /api/tools` | What the Circle can reach for |
 | `GET /api/state` | Deck vitals: dream feed, engine stats, heartbeats, telemetry |
 
-Two engine endpoints joined them on `:5000`: `POST /dream_now` (sets the dream thread's wake event) and `GET /chunk?profile=&idx=&node=` (resolve a search hit's address into its chunk, metadata and atlas cluster — same role gate as `/search`).
+Engine endpoints on `:5000` that joined the original set: `POST /dream_now` (sets the dream thread's wake event), `POST /dream_hold` · `/dream_release` (skip dream cycles while the Council sits; `/stats` reports `dream_held`), and `GET /chunk?profile=&idx=&node=` (resolve a search hit's address into its chunk, metadata and atlas cluster — same role gate as `/search`).
 
 ---
 

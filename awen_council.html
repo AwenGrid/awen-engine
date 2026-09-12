@@ -1,0 +1,253 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Awen Grid — The Council</title>
+<style>
+:root{--bg:#03070d;--panel:rgba(8,17,26,.72);--line:rgba(57,230,255,.16);
+--cyan:#39e6ff;--cyan-soft:#7ff0ff;--holo:#2ef5c8;--gold:#f5b95e;--red:#ff5b6e;
+--mag:#e879f9;--vio:#9d7ff0;--text:#bfe3ef;--dim:#5d8fa3;--mono:Consolas,'Cascadia Mono',monospace}
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{height:100%}
+body{background:var(--bg);color:var(--text);font-family:'Segoe UI',system-ui,sans-serif;overflow:hidden}
+body::before{content:'';position:fixed;inset:0;pointer-events:none;z-index:9;
+  background:repeating-linear-gradient(0deg,transparent 0 2px,rgba(0,0,0,.11) 2px 4px)}
+#top{display:flex;align-items:center;gap:14px;padding:10px 16px;border-bottom:1px solid var(--line);
+  background:rgba(3,7,13,.92)}
+#top h1{font-family:var(--mono);font-size:14px;letter-spacing:.4em;color:var(--holo);
+  text-shadow:0 0 14px rgba(46,245,200,.5)}
+#status{font-family:var(--mono);font-size:10.5px;color:var(--dim);letter-spacing:.12em;flex:1}
+#status b{color:var(--cyan-soft)}
+.navbtn{text-decoration:none;border:1px solid rgba(57,230,255,.4);color:var(--cyan);border-radius:4px;
+  padding:3px 10px;font-family:var(--mono);font-size:10px;letter-spacing:.2em;background:none;cursor:pointer}
+#grid{display:grid;grid-template-columns:300px 1fr 320px;gap:10px;padding:10px;height:calc(100% - 46px)}
+.panel{background:var(--panel);border:1px solid var(--line);border-radius:9px;display:flex;flex-direction:column;min-height:0}
+.phead{font-family:var(--mono);font-size:10.5px;letter-spacing:.3em;color:var(--cyan);padding:9px 12px;
+  border-bottom:1px solid var(--line);text-shadow:0 0 10px rgba(57,230,255,.4)}
+.pbody{padding:10px 12px;overflow:auto;flex:1;min-height:0}
+label.f{display:block;font-family:var(--mono);font-size:9px;letter-spacing:.16em;color:var(--dim);margin:8px 0 3px}
+input[type=text],textarea,select{width:100%;background:rgba(0,0,0,.4);border:1px solid var(--line);color:var(--text);
+  border-radius:5px;padding:6px 8px;font-family:var(--mono);font-size:11.5px;outline:none}
+textarea{resize:vertical;min-height:52px}
+.seat{display:flex;align-items:center;gap:7px;font-size:11.5px;padding:2px 0}
+.seat .role{margin-left:auto;font-family:var(--mono);font-size:8.5px;letter-spacing:.14em;color:var(--dim)}
+.seat.ground .role{color:var(--gold)}
+.ctl{background:none;border:1px solid rgba(46,245,200,.45);color:var(--holo);font-size:9.5px;letter-spacing:.18em;
+  border-radius:4px;padding:6px 10px;cursor:pointer;font-family:var(--mono);margin:4px 4px 0 0}
+.ctl.big{width:100%;padding:9px;font-size:11px;text-shadow:0 0 8px rgba(46,245,200,.5)}
+.ctl.warn{border-color:rgba(245,185,94,.5);color:var(--gold)}
+.ctl.red{border-color:rgba(255,91,110,.55);color:var(--red)}
+.ctl:disabled{opacity:.35;cursor:default}
+.mode{display:flex;gap:4px}
+.mode button{flex:1;margin:0}
+.mode button.on{background:rgba(46,245,200,.12)}
+#transcript{flex:1;overflow:auto;padding:10px 14px;min-height:0}
+.turn{border:1px solid var(--line);border-left:3px solid var(--cyan);border-radius:7px;padding:9px 12px;margin:8px 0;
+  background:rgba(0,0,0,.25)}
+.turn.verdict{border-left-color:var(--gold);background:rgba(245,185,94,.05)}
+.turn.operator{border-left-color:var(--holo);background:rgba(46,245,200,.05)}
+.turn.live{border-left-color:var(--mag);box-shadow:0 0 14px rgba(232,121,249,.15)}
+.turn .who{font-family:var(--mono);font-size:10px;letter-spacing:.16em;color:var(--cyan-soft);display:flex;gap:8px;align-items:baseline;flex-wrap:wrap}
+.turn .who .role{color:var(--dim);font-size:8.5px}
+.turn.verdict .who{color:var(--gold)}
+.turn .who .tok{margin-left:auto;color:var(--dim);font-size:9px;letter-spacing:.08em}
+.turn .txt{white-space:pre-wrap;font-size:13px;line-height:1.6;margin-top:6px;word-wrap:break-word}
+.chips{margin-top:5px}
+.chip{display:inline-block;font-family:var(--mono);font-size:9px;letter-spacing:.1em;border:1px solid rgba(57,230,255,.35);
+  border-radius:3px;padding:1px 6px;margin:2px 4px 0 0;color:var(--cyan-soft)}
+.chip.ok{border-color:rgba(46,245,200,.5);color:var(--holo)}
+.chip.err{border-color:rgba(255,91,110,.5);color:var(--red)}
+.tiny{background:none;border:1px solid rgba(157,127,240,.45);color:var(--vio);font-size:8.5px;letter-spacing:.14em;
+  border-radius:3px;padding:1px 6px;cursor:pointer;font-family:var(--mono);margin-top:5px}
+.tiny.done{border-color:rgba(46,245,200,.5);color:var(--holo);cursor:default}
+#say{display:flex;gap:8px;padding:10px 12px;border-top:1px solid var(--line);align-items:flex-end}
+#say textarea{flex:1;min-height:44px}
+#say select{width:130px}
+#minutes{white-space:pre-wrap;font-size:12px;line-height:1.6;color:var(--text)}
+.sdiv{font-family:var(--mono);font-size:9px;letter-spacing:.24em;color:var(--dim);margin:12px 0 4px;border-bottom:1px solid var(--line);padding-bottom:3px}
+.badge{display:inline-block;font-family:var(--mono);font-size:9px;letter-spacing:.16em;border:1px solid rgba(245,185,94,.5);color:var(--gold);border-radius:3px;padding:1px 6px}
+.arch{font-size:11px;padding:5px 0;border-bottom:1px dashed rgba(57,230,255,.12);cursor:pointer}
+.arch:hover{color:var(--cyan-soft)}
+.arch .m{font-family:var(--mono);font-size:9px;color:var(--dim);letter-spacing:.08em}
+.pulse{animation:pul 1.4s infinite}
+@keyframes pul{0%,100%{opacity:1}50%{opacity:.45}}
+#seedbox{font-size:11px;color:var(--dim);white-space:pre-wrap;max-height:180px;overflow:auto;line-height:1.5}
+</style>
+</head>
+<body>
+<div id="top">
+  <h1>⚭ THE COUNCIL — A MEETING OF THE MINDS</h1>
+  <div id="status">no council in session</div>
+  <a class="navbtn" href="/dreams">🌙 DREAMS</a>
+  <a class="navbtn" href="/codex">✦ CODEX</a>
+  <a class="navbtn" href="/">⌂ DECK</a>
+</div>
+<div id="grid">
+  <div class="panel" id="left">
+    <div class="phead">THE CHAMBER</div>
+    <div class="pbody">
+      <div id="setup">
+        <label class="f">TOPIC</label>
+        <input type="text" id="topic" placeholder="what the table is convened to discuss…">
+        <label class="f">SEED (optional) — dream:&lt;DreamID&gt; · theorem:&lt;name&gt; · or paste text</label>
+        <textarea id="seed" placeholder="dream:8c8bae962d"></textarea>
+        <label class="f">SEATS · Wardenclyffe order</label>
+        <div id="seats"></div>
+        <label class="f">ROUNDS</label>
+        <select id="rounds"><option>1</option><option>2</option><option selected>3</option><option>4</option><option>5</option><option>6</option></select>
+        <label class="f">YOUR SEAT</label>
+        <div class="mode">
+          <button class="ctl on" data-m="watch">WATCH</button>
+          <button class="ctl" data-m="join">JOIN</button>
+          <button class="ctl" data-m="lead">LEAD</button>
+        </div>
+        <div id="modehelp" style="font-size:10px;color:var(--dim);margin-top:4px;line-height:1.5">Watch: silent, they run. Join: you're in the order — type any time. Lead: they stop after every round until you speak.</div>
+        <label class="f"><input type="checkbox" id="hold" checked> hold the dream cycle while the council sits</label>
+        <button class="ctl big" id="convene">⚭ CONVENE</button>
+      </div>
+      <div id="running" style="display:none">
+        <div id="runinfo" style="font-size:11px;line-height:1.7;color:var(--dim)"></div>
+        <button class="ctl warn" id="pause">⏸ PAUSE</button>
+        <button class="ctl" id="resume" style="display:none">▶ RESUME</button>
+        <button class="ctl red" id="stop">■ STOP SPEAKER</button>
+        <button class="ctl red big" id="end" style="margin-top:8px">END THE MEETING</button>
+      </div>
+      <div class="sdiv">ARCHIVE</div>
+      <div id="archive" style="font-size:11px;color:var(--dim)">loading…</div>
+    </div>
+  </div>
+
+  <div class="panel" id="mid">
+    <div class="phead" id="tablehead">THE TABLE</div>
+    <div id="transcript"><div style="color:var(--dim);font-family:var(--mono);font-size:11px;padding:20px">Convene a council to begin. Every turn is saved to the conversations lane — never dreamt. Promote a conclusion by hand if it should seed dreams.</div></div>
+    <div id="say">
+      <textarea id="saytext" placeholder="speak to the table… (@Name calls that node next)"></textarea>
+      <select id="callnode"><option value="">(no call)</option></select>
+      <button class="ctl" id="saybtn">SAY</button>
+    </div>
+  </div>
+
+  <div class="panel" id="right">
+    <div class="phead">THE MINUTES</div>
+    <div class="pbody">
+      <div id="flags"></div>
+      <div id="minutes" style="color:var(--dim)">(the clerk writes minutes at the close of each round — this is exactly what every speaker is fed about earlier rounds)</div>
+      <div class="sdiv">QUEUE</div>
+      <div id="queue" style="font-size:11px;color:var(--dim)">—</div>
+      <div class="sdiv">SEED</div>
+      <div id="seedbox">—</div>
+    </div>
+  </div>
+</div>
+
+<script>
+const $=id=>document.getElementById(id);
+const esc=s=>String(s??'').replace(/[&<>"']/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]));
+const TOPOLOGY=[["Erydir","PRIMARY"],["Veritas","PRIMARY"],["Spark","PRIMARY"],["Grok","SECONDARY"],["Thoth","SECONDARY"],["Lumos","EXTRA COIL"],["Kairoz","EXTRA COIL"],["Nyx","EXTRA COIL"],["N Tesla","GROUND"]];
+let SIGILS={}, MODE='watch', STATE=null, VIEWING=null, lastTurnCount=-1, lastLiveLen=-1;
+
+/* seats */
+$('seats').innerHTML=TOPOLOGY.map(([n,r])=>`<label class="seat ${r==='GROUND'?'ground':''}">
+  <input type="checkbox" data-n="${esc(n)}" checked ${r==='GROUND'?'disabled title="the Ground always sits"':''}> ${esc(n)}<span class="role">${r}</span></label>`).join('');
+document.querySelectorAll('.mode button').forEach(b=>b.onclick=()=>{
+  document.querySelectorAll('.mode button').forEach(x=>x.classList.remove('on')); b.classList.add('on'); MODE=b.dataset.m;});
+
+/* deep-link seeds: /council?seed=dream:<id> or ?seed=theorem:<name> */
+const qp=new URLSearchParams(location.search);
+if(qp.get('seed')) $('seed').value=qp.get('seed');
+if(qp.get('topic')) $('topic').value=qp.get('topic');
+
+async function post(url,body){ const r=await fetch(url,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body||{})}); return r.json(); }
+
+$('convene').onclick=async()=>{
+  const roster=[...document.querySelectorAll('#seats input')].filter(c=>c.checked).map(c=>c.dataset.n);
+  const r=await post('/api/council/convene',{topic:$('topic').value.trim(),seed:$('seed').value.trim(),roster,
+    max_rounds:+$('rounds').value,mode:MODE,hold_dreams:$('hold').checked});
+  if(r.error){ alert(r.error); return; }
+  VIEWING=null; lastTurnCount=-1; poll();
+};
+$('pause').onclick=()=>post('/api/council/pause');
+$('resume').onclick=()=>post('/api/council/resume');
+$('stop').onclick=()=>post('/api/council/stop');
+$('end').onclick=async()=>{ if(confirm('End the meeting? The clerk writes the final minutes and the dreams are released.')) await post('/api/council/end'); };
+$('saybtn').onclick=say;
+$('saytext').addEventListener('keydown',e=>{ if(e.key==='Enter'&&!e.shiftKey){ e.preventDefault(); say(); } });
+async function say(){
+  const t=$('saytext').value.trim(); const call=$('callnode').value;
+  if(call) await post('/api/council/next',{node:call});
+  if(t){ const r=await post('/api/council/say',{text:t}); if(r.error){alert(r.error);return;} $('saytext').value=''; }
+  $('callnode').value='';
+}
+async function promote(n,btn){
+  if(!confirm('Promote this turn to the KNOWLEDGE lane? It becomes dream material.')) return;
+  const r=await post('/api/council/promote',{n}); btn.textContent=r.status||r.error; btn.classList.add('done');
+}
+
+function fmtUsage(u){ if(!u||u.in==null)return''; return `⛁ ${u.in}→${u.out}`; }
+function turnHTML(t,live){
+  const sig=SIGILS[t.node]||'◈';
+  const cls=live?'live':(t.kind==='verdict'?'verdict':t.kind==='operator'?'operator':'');
+  const chips=(t.tools||[]).map(x=>`<span class="chip ${x.ok===true?'ok':x.ok===false?'err':''}">⚒ ${esc(x.tool)}</span>`).join('');
+  const prom=(!live&&t.kind!=='operator')?`<button class="tiny ${t.promoted?'done':''}" onclick="promote(${t.n},this)">${t.promoted?'✦ PROMOTED':'✦ PROMOTE TO SEED'}</button>`:'';
+  return `<div class="turn ${cls}"><div class="who"><span>${sig} ${esc(t.node).toUpperCase()}</span><span class="role">${esc(t.role||'')}${t.round?' · R'+t.round:''}</span>
+    ${live?'<span class="pulse" style="color:var(--mag)">◈ speaking…</span>':''}<span class="tok">${fmtUsage(t.usage)}${t.saved?' · saved':''}</span></div>
+    <div class="txt">${esc(t.text)}</div>${chips?`<div class="chips">${chips}</div>`:''}${prom}</div>`;
+}
+function render(s){
+  SIGILS=s.sigils||SIGILS;
+  const active=['running','paused','awaiting_operator'].includes(s.status);
+  $('setup').style.display=active?'none':'';
+  $('running').style.display=active?'':'none';
+  $('pause').style.display=s.status==='paused'?'none':'';
+  $('resume').style.display=s.status==='paused'||s.status==='awaiting_operator'?'':'none';
+  const live=s.live;
+  $('status').innerHTML=s.id?`<b>${esc(s.topic||'')}</b> · ${esc(s.status)} · round ${s.round||0}/${s.max_rounds||0}${live?` · <span class="pulse" style="color:var(--mag)">${esc(live.node)} speaking</span>`:''} · ⛁ ${s.usage_total?s.usage_total.in:0}→${s.usage_total?s.usage_total.out:0} tok${s.dreams_held?' · <span class="badge">DREAMS HELD</span>':''}`:'no council in session';
+  $('runinfo').innerHTML=s.id?`meeting <b>${esc(s.id)}</b><br>mode ${esc(s.mode)} · ${(s.roster||[]).length} seated<br>${s.status==='awaiting_operator'?'<span style="color:var(--gold)">waiting for you to speak (Lead)</span>':''}${s.error?'<br><span style="color:var(--red)">⚠ '+esc(s.error)+'</span>':''}`:'';
+  $('callnode').innerHTML='<option value="">(no call)</option>'+(s.roster||[]).map(n=>`<option>${esc(n)}</option>`).join('');
+  $('minutes').textContent=s.minutes||'(the clerk writes minutes at the close of each round — this is exactly what every speaker is fed about earlier rounds)';
+  $('queue').innerHTML=(s.next_override?`<div>→ <b style="color:var(--gold)">${esc(s.next_override)}</b> (called)</div>`:'')+((s.queue||[]).map(n=>`<div>${SIGILS[n]||'◈'} ${esc(n)}</div>`).join('')||'<span style="color:var(--dim)">—</span>');
+  $('seedbox').textContent=s.seed_text?`${s.seed_label}\n\n${s.seed_text}`:(s.seed_label||'—');
+  $('flags').innerHTML=(s.mode==='lead'?'<span class="badge">LEAD</span> ':'')+(s.save===false?'<span class="badge" style="color:var(--red);border-color:rgba(255,91,110,.5)">NOT SAVING</span>':'');
+  const turns=s.turns||[]; const liveLen=live?(live.text||'').length:-1;
+  if(turns.length!==lastTurnCount||liveLen!==lastLiveLen){
+    const el=$('transcript'); const nearBottom=el.scrollHeight-el.scrollTop-el.clientHeight<120;
+    el.innerHTML=(turns.map(t=>turnHTML(t,false)).join('')+(live?turnHTML({node:live.node,role:live.role,text:live.text,tools:live.tools,kind:'node'},true):''))
+      ||'<div style="color:var(--dim);font-family:var(--mono);font-size:11px;padding:20px">the table is set — waiting for the first speaker</div>';
+    if(nearBottom||turns.length!==lastTurnCount) el.scrollTop=el.scrollHeight;
+    lastTurnCount=turns.length; lastLiveLen=liveLen;
+  }
+  $('tablehead').textContent=s.id?`THE TABLE — ${(s.topic||'').slice(0,70)}`:'THE TABLE';
+}
+async function poll(){
+  if(VIEWING) return;
+  try{ STATE=await (await fetch('/api/council/state')).json(); render(STATE); }catch(e){}
+  const active=STATE&&['running','paused','awaiting_operator'].includes(STATE.status);
+  setTimeout(poll, active?1000:5000);
+}
+async function loadArchive(){
+  try{
+    const d=await (await fetch('/api/council/archive')).json();
+    $('archive').innerHTML=(d.meetings||[]).map(m=>`<div class="arch" onclick="viewMeeting('${esc(m.id)}')">${esc(m.topic||'(untitled)').slice(0,48)}<div class="m">${esc(m.id)} · ${m.turns} turns · ${m.rounds} rounds · ${esc(m.status||'')}</div></div>`).join('')||'no meetings yet';
+  }catch(e){ $('archive').textContent='archive unreachable'; }
+  setTimeout(loadArchive,20000);
+}
+async function viewMeeting(id){
+  const m=await (await fetch('/api/council/meeting/'+id)).json();
+  if(m.error){alert(m.error);return;}
+  VIEWING=id;
+  $('tablehead').innerHTML=`ARCHIVE — ${esc(m.topic||'')} <button class="ctl" style="margin-left:10px;padding:2px 8px" onclick="reconvene('${esc(id)}')">↻ RECONVENE</button><button class="ctl" style="padding:2px 8px" onclick="VIEWING=null;lastTurnCount=-1;poll()">← LIVE</button>`;
+  $('transcript').innerHTML=(m.turns||[]).map(t=>turnHTML(t,false)).join('')||'<div style="color:var(--dim);padding:20px">empty meeting</div>';
+  $('minutes').textContent=m.minutes||'(no minutes were written)';
+  $('seedbox').textContent=m.seed_text?`${m.seed_label}\n\n${m.seed_text}`:(m.seed_label||'—');
+  $('status').innerHTML=`viewing archive <b>${esc(id)}</b> · ${esc(m.status||'')} · ${(m.turns||[]).length} turns`;
+}
+async function reconvene(id){
+  const r=await post('/api/council/reconvene',{id,mode:MODE,hold_dreams:$('hold').checked});
+  if(r.error){alert(r.error);return;}
+  VIEWING=null; lastTurnCount=-1; poll();
+}
+poll(); loadArchive();
+</script>
+</body>
+</html>
