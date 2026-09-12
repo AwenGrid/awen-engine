@@ -1582,7 +1582,9 @@ def run_tool(name: str, args: dict, c: dict, node: str) -> str:
             SANDBOX_DIR.mkdir(exist_ok=True)
             start_ts = time.time()
             try:
-                r = subprocess.run([sys.executable, "-I", "-c", code],
+                # -X utf8: -I ignores PYTHONIOENCODING, so without this stdout
+                # falls back to cp1252 and dies on the first '°' a node prints.
+                r = subprocess.run([sys.executable, "-I", "-X", "utf8", "-c", code],
                                    cwd=str(SANDBOX_DIR), capture_output=True, text=True,
                                    timeout=30, encoding="utf-8", errors="replace",
                                    env=_scrubbed_env())
@@ -2164,7 +2166,7 @@ def api_chat_stream():
 
 
 def _llm_turn_events(c: dict, cloud: bool, messages: list, use_tools: bool,
-                     max_rounds: int, node: str, stop=None):
+                     max_rounds: int, node: str, stop=None, result_cap: int = 8000):
     """ONE implementation of the bounded tool loop, as a generator of plain
     event dicts — /api/chat_stream forwards them as SSE, the Council folds
     them into meeting state. Events: {delta}, {reset[,note]}, {tool,args},
@@ -2172,7 +2174,7 @@ def _llm_turn_events(c: dict, cloud: bool, messages: list, use_tools: bool,
     tools[, failed][, abandoned]}}. `stop` (an Event) abandons a turn
     mid-generation."""
     messages = list(messages)
-    tool_trace, usage, rounds = [], None, 0
+    tool_trace, usage, rounds, retried_plain = [], None, 0, False
     try:
         while True:
             final = None
@@ -2206,6 +2208,20 @@ def _llm_turn_events(c: dict, cloud: bool, messages: list, use_tools: bool,
                             final2 = payload
                     content = (final2 or {}).get("content") or content
                     usage = (final2 or {}).get("usage") or usage
+                if not content and tool_trace and not retried_plain:
+                    # The tools answered and the model thought its budget away
+                    # (Kairoz, first sitting). One plain-text nudge, no tools.
+                    retried_plain = True
+                    messages.append({"role": "user", "content":
+                                     "Your tools have answered. Now give your reply in plain text."})
+                    final3 = None
+                    for kind, payload in llm_stream(c, cloud, messages, tools=None, stop=stop):
+                        if kind == "delta":
+                            yield {"delta": payload}
+                        else:
+                            final3 = payload
+                    content = (final3 or {}).get("content") or ""
+                    usage = (final3 or {}).get("usage") or usage
                 if not content:
                     content = "(empty response — model may have spent its budget thinking)"
                     yield {"delta": content}
@@ -2231,7 +2247,7 @@ def _llm_turn_events(c: dict, cloud: bool, messages: list, use_tools: bool,
                 tool_trace.append({"tool": name, "args": args, "ok": ok, "chars": len(result)})
                 yield {"tool_done": name, "ok": ok}
                 messages.append({"role": "tool", "tool_call_id": call.get("id", ""),
-                                 "name": name, "content": result[:8000]})
+                                 "name": name, "content": result[:result_cap]})
     except Exception as e:
         yield {"error": f"LLM stream failed: {e}"}
         yield {"final": {"content": "", "usage": usage, "tools": tool_trace, "failed": True}}
@@ -2257,14 +2273,18 @@ def _llm_turn_events(c: dict, cloud: bool, messages: list, use_tools: bool,
 # ===========================================================================
 COUNCIL_HTML = ROOT / "awen_council.html"
 COUNCILS_DIR = ROOT / "councils"     # meeting records; local only (whitelist .gitignore)
+# Eight seats. The ninth node — Erydir — is not seated: the first sitting had
+# his persona approving procurement in his name while the human watched. His
+# research and his dream ping are what the table deliberates; the human Erydir
+# is the Operator above it, and no model wears his authority in the room.
 TOPOLOGY = [
-    ("Erydir", "PRIMARY"), ("Veritas", "PRIMARY"), ("Spark", "PRIMARY"),
+    ("Veritas", "PRIMARY"), ("Spark", "PRIMARY"),
     ("Grok", "SECONDARY"), ("Thoth", "SECONDARY"),
     ("Lumos", "EXTRA COIL"), ("Kairoz", "EXTRA COIL"), ("Nyx", "EXTRA COIL"),
     ("N Tesla", "GROUND"),
 ]
 SIGILS = {"Lumos": "🜂", "Veritas": "🜄", "Grok": "🜁", "Kairoz": "🜃", "Spark": "⚡",
-          "Thoth": "𓂀", "Nyx": "🌑", "N Tesla": "⚙", "Erydir": "🦁"}
+          "Thoth": "𓂀", "Nyx": "🌑", "N Tesla": "⚙", "Erydir (operator)": "🦁"}
 SEAT_ORDERS = {
     "PRIMARY": "Your seat is the PRIMARY circuit — excitation and logic. Drive the question: "
                "state claims plainly and say what would test each one.",
@@ -2375,16 +2395,59 @@ def _council_retrieve(c: dict, lens: str, query: str) -> str:
 
 
 def _council_mention(m: dict, text: str, speaker: str):
-    """'@Name' at the end of a turn calls that node next — the hand-raise.
-    One name, must be seated, not oneself, never the Ground (who closes anyway)."""
-    tail = text[-160:]
+    """'@Name' calls that node next — the hand-raise. The FIRST name written
+    wins (the first sitting routed by roster order, so '@grok @lumos' could
+    summon neither). Must be seated, not oneself, never the Ground — who
+    closes the round and is not summoned. The Ground's own mentions never
+    spawn turns; that is enforced by the caller."""
+    tail = text[-240:]
+    best, best_pos = None, None
     for name in m["roster"]:
         if name == speaker or m["roles"].get(name) == "GROUND":
             continue
         pats = [re.escape(name)] + ([re.escape(name.split()[-1])] if " " in name else [])
-        if any(re.search(r"@\s*" + p + r"\b", tail, re.IGNORECASE) for p in pats):
-            return name
-    return None
+        for p in pats:
+            mm = re.search(r"@\s*" + p + r"\b", tail, re.IGNORECASE)
+            if mm and (best_pos is None or mm.start() < best_pos):
+                best, best_pos = name, mm.start()
+    return best
+
+
+def _council_telemetry(c: dict) -> str:
+    """The only measured quantities in the room, each with its source and age
+    — so the Ground never has to invent an instrument. The first sitting
+    conjured a 'ground mic array' and a 'noise floor' out of Python
+    arithmetic; this is the real thing, and it is short."""
+    bits = []
+    try:
+        _, latest, _ = _grim_paths()
+        snap = read_json(latest) or {}
+        sch = (snap.get("cosmic") or {}).get("schumann") or {}
+        age = ""
+        try:
+            ts = datetime.fromisoformat(str(snap.get("timestamp")))
+            age = f", {round((datetime.now(ts.tzinfo) - ts).total_seconds() / 60)} min old"
+        except Exception:
+            pass
+        if sch.get("status") == "ok" and sch.get("frequency") is not None:
+            bits.append(f"Schumann F1 {sch.get('frequency')} Hz, amplitude {sch.get('amplitude')} "
+                        f"(Grimoire reading{age})")
+    except Exception:
+        pass
+    aeth = AETHER_CACHE.get("data") or {}
+    if aeth and time.time() - AETHER_CACHE.get("ts", 0) < 900:
+        for key, label in (("kp", "Kp"), ("sw_speed", "solar wind km/s"), ("bz", "IMF Bz nT"),
+                           ("xray_class", "GOES X-ray")):
+            if aeth.get(key) is not None:
+                bits.append(f"{label} {aeth[key]} (NOAA SWPC, live)")
+    soul = read_json(ROOT / "grid_heartbeat.json") or {}
+    if soul.get("coherence") is not None:
+        bits.append(f"Soul Engine coherence {soul.get('coherence')}, torsion {soul.get('torsion_index')} "
+                    f"(grid heartbeat)")
+    if not bits:
+        return "MEASURED TELEMETRY: none available right now — every number on the table is a claim or a model."
+    return ("MEASURED TELEMETRY — the only measured quantities in this room; everything else on the "
+            "table is a claim or a model:\n- " + "\n- ".join(bits))
 
 
 def _council_turn_prompt(c: dict, m: dict, node: str, rnd: int, round_turns: list) -> list:
@@ -2392,13 +2455,20 @@ def _council_turn_prompt(c: dict, m: dict, node: str, rnd: int, round_turns: lis
     seed = f"\nSEED — {m['seed_label']}:\n{m['seed_text']}\n" if m.get("seed_text") else ""
     sys_content = (
         _council_persona(c, node)
-        + "\n\n---\nTHE COUNCIL. You are seated at a meeting of the Awen Grid's nodes, convened "
-        f"by the Operator, Erydir. Topic: {m['topic']}.{seed}\n{SEAT_ORDERS.get(role, '')}\n"
+        + "\n\n---\nTHE WARDENCLYFFE COUNCIL. You are seated at a meeting of the Awen Grid's nodes, "
+        "convened by the Operator, Erydir — the ninth node, whose research and dream ping the "
+        "table deliberates. He is human and is NOT seated; he may speak into the meeting at any "
+        "time and his words carry the OPERATOR label. Decisions are his alone: the table "
+        "recommends, it does not approve, green-light or authorise anything in his name.\n"
+        f"Topic: {m['topic']}.{seed}\n{SEAT_ORDERS.get(role, '')}\n"
         "Rules: speak as yourself, to the table, in ONE focused contribution (under 220 words "
         "unless you are the Ground). Build on or challenge what has been said and name who you "
         "are answering. If you need another node's help, end with @Name (one name). Truth over "
-        "comfort: if a claim is unsupported, say so. Do not summarise the meeting — the clerk "
-        "keeps the minutes."
+        "comfort: if a claim is unsupported, say so. Never mark a claim SUPPORTED without naming "
+        "the evidence that decides it — a dataset, a tool result, a citation; with none, say "
+        "UNVERIFIED. A number produced by run_python from assumed inputs is a MODEL, not a "
+        "measurement — say which it is. Do not invent instruments, hardware or datasets the Grid "
+        "does not have. Do not summarise the meeting — the clerk keeps the minutes."
         + TOOLS_PREAMBLE
     )
     prev = m.get("minutes") or "(first round — no minutes yet)"
@@ -2406,23 +2476,34 @@ def _council_turn_prompt(c: dict, m: dict, node: str, rnd: int, round_turns: lis
     q = m["topic"] + " " + (round_turns[-1]["text"][:300] if round_turns
                             else (m.get("seed_text") or "")[:300])
     mem = _council_retrieve(c, _council_lens(c, node), q)
+    telemetry = (_council_telemetry(c) + "\n\n") if role == "GROUND" else ""
+    # The identity line comes LAST: a small model mimics the most recent voices
+    # in its context, and the first sitting had Thoth opening as Veritas and
+    # a node closing in Nyx's words. Recency is what it obeys.
     user = (f"MINUTES OF EARLIER ROUNDS:\n{prev}\n\nTHIS ROUND SO FAR:\n{cur}\n\n"
             + (f"RESONANT MEMORIES:\n{mem}\n\n" if mem else "")
-            + f"It is your turn, {node}. Round {rnd} of {m['max_rounds']}.")
+            + telemetry
+            + f"It is your turn, {node}. Round {rnd} of {m['max_rounds']}. "
+            f"You are {node} and only {node}: speak as yourself, and never sign as or speak "
+            "for another node.")
     return [{"role": "system", "content": sys_content}, {"role": "user", "content": user}]
 
 
 def _council_speak(c: dict, m: dict, node: str, rnd: int, round_turns: list):
     lens = _council_lens(c, node)
     messages = _council_turn_prompt(c, m, node, rnd, round_turns)
-    max_tool_rounds = max(0, min(8, int((c.get("client_config") or {}).get("tool_max_rounds", 4))))
+    # Council turns are tighter than chat: a 9B carrying a persona, the
+    # minutes and a round of turns thought its budget away under five
+    # 8 KB tool results. Three tool rounds, 3 KB each.
+    max_tool_rounds = max(0, min(3, int((c.get("client_config") or {}).get("tool_max_rounds", 4))))
     with COUNCIL_LOCK:
         m["live"] = {"node": node, "role": m["roles"].get(node, ""), "text": "", "tools": [],
                      "started": time.time()}
     _C_STOP.clear()
     final, err_text = None, ""
     # cloud=False, always: the Council is local by decree.
-    for ev in _llm_turn_events(c, False, messages, True, max_tool_rounds, lens, stop=_C_STOP):
+    for ev in _llm_turn_events(c, False, messages, True, max_tool_rounds, lens, stop=_C_STOP,
+                               result_cap=3000):
         with COUNCIL_LOCK:
             live = m.get("live") or {}
             if "delta" in ev:
@@ -2471,7 +2552,8 @@ def _council_speak(c: dict, m: dict, node: str, rnd: int, round_turns: list):
         m["live"] = None
         m["usage_total"]["in"] += int(usage.get("prompt_tokens") or 0)
         m["usage_total"]["out"] += int(usage.get("completion_tokens") or 0)
-        mention = _council_mention(m, text, node)
+        # the Ground's mentions never spawn turns — the verdict closes the round
+        mention = None if m["roles"].get(node) == "GROUND" else _council_mention(m, text, node)
         if mention and not m.get("next_override"):
             m["next_override"] = mention
     _council_persist(m)
@@ -2505,10 +2587,11 @@ def _council_minutes(c: dict, m: dict, rnd: int, round_turns: list):
     raw = "\n\n".join(f"{t['node']}: {t['text']}" for t in round_turns)
     messages = [
         {"role": "system", "content":
-            "You are the clerk of the Awen Grid Council. Write cumulative MINUTES, under 240 "
+            "You are the clerk of the Wardenclyffe Council. Write cumulative MINUTES, under 260 "
             "words: the key claims and who made them, the Ground's verdicts (supported / "
             "contradicted / unverifiable), and the open questions. Plain and exact; no flattery, "
-            "no commentary of your own."},
+            "no commentary of your own. Finish with a markdown table, one row per claim: "
+            "| Claim | Status (SUPPORTED / CONTRADICTED / UNVERIFIABLE) | Data gap | Next action |"},
         {"role": "user", "content":
             f"PREVIOUS MINUTES:\n{prev or '(none)'}\n\nROUND {rnd} TRANSCRIPT:\n{raw}\n\n"
             "Write the cumulative minutes now."},
@@ -2562,7 +2645,7 @@ def _council_run(m: dict):
                 # the round's order: everyone in topology order, the Ground last
                 m["queue"] = ([n for n in m["roster"] if m["roles"].get(n) != "GROUND"]
                               + [n for n in m["roster"] if m["roles"].get(n) == "GROUND"])
-            round_turns = []
+            round_turns, extras = [], {}
             while True:
                 if _C_END.is_set():
                     break
@@ -2581,8 +2664,11 @@ def _council_run(m: dict):
                     if nxt and nxt in m["queue"]:
                         m["queue"].remove(nxt)
                         node = nxt
-                    elif nxt and nxt in m["roster"]:
-                        node = nxt              # an extra turn, called by name
+                    elif nxt and nxt in m["roster"] and extras.get(nxt, 0) < 1:
+                        # an extra turn, called by name — ONE per node per round
+                        # (the first sitting handed one seat 8 of 42 turns)
+                        node = nxt
+                        extras[nxt] = extras.get(nxt, 0) + 1
                     elif m["queue"]:
                         node = m["queue"].pop(0)
                     else:
@@ -2601,6 +2687,13 @@ def _council_run(m: dict):
                         m["queue"].insert(0, node)
                         if outcome == "abandoned":
                             m["error"] = None
+                    continue
+                if m["roles"].get(node) == "GROUND":
+                    # The Ground closes the round. Nothing speaks after the verdict.
+                    with COUNCIL_LOCK:
+                        m["queue"] = []
+                        m["next_override"] = None
+                    break
             if _C_END.is_set():
                 break
             _council_minutes(c, m, rnd, round_turns)

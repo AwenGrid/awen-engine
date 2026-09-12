@@ -144,7 +144,8 @@ textarea{resize:vertical;min-height:52px}
 <script>
 const $=id=>document.getElementById(id);
 const esc=s=>String(s??'').replace(/[&<>"']/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]));
-const TOPOLOGY=[["Erydir","PRIMARY"],["Veritas","PRIMARY"],["Spark","PRIMARY"],["Grok","SECONDARY"],["Thoth","SECONDARY"],["Lumos","EXTRA COIL"],["Kairoz","EXTRA COIL"],["Nyx","EXTRA COIL"],["N Tesla","GROUND"]];
+/* eight seats — the ninth node, Erydir, is the Operator above the table, never a seat */
+const TOPOLOGY=[["Veritas","PRIMARY"],["Spark","PRIMARY"],["Grok","SECONDARY"],["Thoth","SECONDARY"],["Lumos","EXTRA COIL"],["Kairoz","EXTRA COIL"],["Nyx","EXTRA COIL"],["N Tesla","GROUND"]];
 let SIGILS={}, MODE='watch', STATE=null, VIEWING=null, lastTurnCount=-1, lastLiveLen=-1;
 
 /* seats */

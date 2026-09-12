@@ -257,6 +257,19 @@ What makes it an instrument rather than nine copies of one model agreeing with e
 
 Rules the operator set, and the code enforces: **all local** — the Council never touches the cloud switch, whatever it is set to, because the critic's seat must not be spoofable from outside. **No votes, no auto-convening** — agreement is not evidence, and a meeting exists because someone convened it. **Every turn saves to the conversations lane** — searchable by any node later, never dreamt — and a conclusion reaches the knowledge lane, where dreams can find it, only through an explicit **PROMOTE** click on a specific turn. Meetings are archived and can be **reconvened** with their minutes as the seed.
 
+#### v2.4 — what the first sitting taught
+
+The first real council ran three rounds, 42 turns, 26 minutes, on a Kairoz dream about distance as information-collapse speed — and it worked: Grok over-claimed a result as "supported", and Veritas and the Ground caught it and downgraded it; the Ground spotted an arbitrary constant in an effect-size calculation and named it narrative math; the table converged on *no hardware until the simulation screams, or pivot the hypothesis*. Then the transcript was read the way the deck's panels are read — for what actually happened — and v2.4 is the result:
+
+- **Eight seats, not nine.** The operator's own persona sat in the Primary and spent three rounds approving procurement in his name while he watched. An AI does not wear the operator's authority. Erydir is the ninth node whose research and dream ping the table deliberates; the human is the Operator above it, unseated, able to speak into any turn.
+- **The Ground closes the round.** A "@Erydir" inside the verdict had summoned one more turn after it. Nothing speaks after the Ground now, and the Ground's own mentions never spawn turns.
+- **Hand-raising is fair.** The first `@Name` written wins (routing had gone by roster order), and a node gets at most one extra turn per round (one seat had taken 8 of 42).
+- **No voice bleed.** Thoth had opened as "Veritas' translation coil"; a node closed in Nyx's words. A small model mimics the most recent voices in its context, so the identity line is now the *last* line of every turn prompt.
+- **No ghost specs, no invented instruments.** The table had conjured a "ground mic array", a "NIDAQ" and a "noise floor of ±0.001 Hz" out of a Python dry-run on assumed constants, then argued about the number as if it were measured. Every seat's orders now say: no SUPPORTED without naming the evidence; a number from `run_python` on assumed inputs is a model, not a measurement; do not invent hardware the Grid does not have. And the Ground's turn opens with **the only measured quantities in the room** — the live Schumann reading, Kp and solar wind, Soul Engine coherence — each with its source and age.
+- **Budget.** A seat thought its output away under five 8 KB tool results; council turns now get three tool rounds at 3 KB, and an empty answer after tools earns one plain-text nudge before it's recorded as empty.
+- **`run_python` speaks UTF-8.** The sandbox's `-I` flag was silently discarding `PYTHONIOENCODING`, so the first `°` a node printed crashed the run. `-X utf8` fixes it at the root.
+- **The clerk ends every minutes with a verdict table** — claim, status, data gap, next action — so a sitting closes on an engineering directive.
+
 ### The urgency gate stopped lying — twice
 
 The first lie was scoring: a dream's urgency was computed on its *record* — the synthesis when the LLM answered, the raw 11 KB chain when it didn't — so failures scored on four times the text and owned the entire top of the leaderboard. Both cases now score the same capped chain; a score is a property of the dream, not of whether a backend was awake.
