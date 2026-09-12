@@ -2238,13 +2238,13 @@ def _llm_turn_events(c: dict, cloud: bool, messages: list, use_tools: bool,
 
 
 # ===========================================================================
-#  THE COUNCIL — a meeting of the minds.
-#
-#  The Wardenclyffe topology in the cheat sheet was always a council design:
-#  Primary drives, Secondary translates, Extra coil resonates, Ground anchors.
-#  It just never RAN. This runs it: one local 9B, persona-swapped per turn,
+#  THE WARDENCLYFFE COUNCIL — a meeting of the minds, convened under the
+#  Wardenclyffe Protocol (the circuit topology in the cheat sheet: Primary
+#  drives, Secondary translates, Extra coil resonates, Ground anchors). The
+#  Protocol is the design; the Council is the sitting — and until now the
+#  design never RAN. This runs it: one local 9B, persona-swapped per turn,
 #  each seat with its own retrieval lens and the Circle's toolbelt. The Ground
-#  (N Tesla) speaks last every round as the critic.
+#  (N Tesla) speaks last every round as the critic: he chairs by construction.
 #
 #  Rules the operator set, and the code enforces:
 #   * all local — the council never touches the cloud switch, whatever it says

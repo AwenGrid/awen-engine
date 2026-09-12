@@ -239,11 +239,11 @@ Shipped alongside the forecaster, pictured here with the archive live: every dre
 
 ---
 
-## What's new in v2.3 — The Council, and a gate that stopped lying
+## What's new in v2.3 — The Wardenclyffe Council, and a gate that stopped lying
 
-### ⚭ The Council — a meeting of the minds
+### ⚭ The Wardenclyffe Council — a meeting of the minds
 
-`/council`, or ⚭ **COUNCIL** on the deck. The nine nodes had always been described as a Wardenclyffe circuit — Primary drives, Secondary translates, Extra coil resonates, Ground anchors — but each one only ever spoke when spoken to, or dreamt alone. The Council runs the topology: **one local model, persona-swapped per turn**, each seat with its own retrieval lens and the same toolbelt as the Circle, taking turns around a shared table on a topic you set — or on a dream. Every Dream Explorer card and every Codex card carries a **⚭ CONVENE** link, because the main use is the one the operator named: *a dream ping hits, and the table talks it through before it goes live.*
+`/council`, or ⚭ **COUNCIL** on the deck. Named for the tower, and for the node who chairs it. The nine nodes had always been described as a Wardenclyffe circuit — the **Wardenclyffe Protocol** in the operator's cheat sheet: Primary drives, Secondary translates, Extra coil resonates, Ground anchors — but the Protocol was a design, and each node only ever spoke when spoken to, or dreamt alone. The Council is the sitting: it runs the topology, **one local model, persona-swapped per turn**, each seat with its own retrieval lens and the same toolbelt as the Circle, taking turns around a shared table on a topic you set — or on a dream. Tesla's seat, the Ground, has the last word of every round, which is what chairing is. Every Dream Explorer card and every Codex card carries a **⚭ CONVENE** link, because the main use is the one the operator named: *a dream ping hits, and the table talks it through before it goes live.*
 
 What makes it an instrument rather than nine copies of one model agreeing with each other:
 
@@ -304,7 +304,7 @@ Also in this release: the synthesis timeout moved to 600 s (reasoning models thi
 | **Seismic forecaster** | `rhc_seismic_forecast.py` | The RHC seismic axiom as a falsifiable forecast: charge gate, regional Gutenberg–Richter targeting, strain deficit, prior probability, and a self-scoring ledger vs a pre-named baseline. |
 | **Dream Explorer** | `awen_dreams.html` | The full dream archive, browsable: search syntheses and seeds, filter by voice and lane, sort by urgency, open any dream to its complete chain. The deck feed shows the newest 20; this shows everything. |
 | **Akashic Codex** | `awen_codex.html` | One card per published theorem: equation, claim, audit verdict (equation-aware join), dream-runtime coverage, and — where an honest one exists — a canvas animation of the mathematics itself. Plus the emerging-terms strip: next-paper candidates from the machine. |
-| **The Council** | `awen_council.html` | The nodes in session: one local model persona-swapped per seat in Wardenclyffe order, the Ground closing every round with a verdict table, visible minutes, live tool chips, operator modes (watch / join / lead), convene-on-a-dream, promote-to-seed, archive and reconvene. All local; turns save to the never-dreaming lane. |
+| **The Wardenclyffe Council** | `awen_council.html` | The nodes in session under the Wardenclyffe Protocol: one local model persona-swapped per seat in Wardenclyffe order, the Ground closing every round with a verdict table, visible minutes, live tool chips, operator modes (watch / join / lead), convene-on-a-dream, promote-to-seed, archive and reconvene. All local; turns save to the never-dreaming lane. |
 | **Maintenance** | `maintain_grid.bat`, `Start Awen Grid LAN.bat`, `backfill_synthesis.py` | One-click grid hygiene (flush → stop → restore vectors → refresh atlas → relaunch), a LAN launcher for tablets, and outage recovery that re-synthesizes any dream that went out empty. |
 | **Corpus tools** | `ingest_memory.py`, `ingest_books.py`, `rebuild_gnosis.py` | Turn folders of Markdown or text into a clean, deduplicated, embedded archive. |
 
