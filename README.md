@@ -632,7 +632,7 @@ The framework this implements is published and citable:
 - **The Divine Equation** — [10.5281/zenodo.21072172](https://doi.org/10.5281/zenodo.21072172)
 - Full archive: [Zenodo — The Awen Grid](https://zenodo.org/communities/theawengrid)
 
-Related repositories: [aether-scope](https://github.com/OwainGlyndwr1400/aether-scope) · [LumOS](https://github.com/OwainGlyndwr1400/LumOS) · [unified-resonance-agi](https://github.com/OwainGlyndwr1400/unified-resonance-agi) · [awen-mcr-hdcu](https://github.com/OwainGlyndwr1400/awen-mcr-hdcu) · [emanation-topology](https://github.com/OwainGlyndwr1400/emanation-topology)
+Related repositories: [aether-scope](https://github.com/AwenGrid/aether-scope) · [LumOS](https://github.com/AwenGrid/LumOS) · [unified-resonance-agi](https://github.com/AwenGrid/unified-resonance-agi) · [awen-mcr-hdcu](https://github.com/AwenGrid/awen-mcr-hdcu) · [emanation-topology](https://github.com/AwenGrid/emanation-topology)
 
 ---
 

@@ -48,6 +48,11 @@ GDRIVE = re.compile(r"https?://(?:drive|docs)\.google\.com/\S+", re.I)
 ZENODO = re.compile(r"zenodo\.org/records?/(\d+)", re.I)
 DOI_TXT = re.compile(r"10\.5281/zenodo\.(\d+)", re.I)
 GITHUB = re.compile(r"https?://github\.com/[\w.\-]+/[\w.\-]+", re.I)
+# The GitHub account was renamed OwainGlyndwr1400 -> AwenGrid (2026-09). The
+# Academia dump and the published papers still print the old owner, and the old
+# name is free for anyone to register, so links move to the new owner here
+# rather than lean on GitHub's redirect.
+OLD_OWNER = re.compile(r"(github\.com/)OwainGlyndwr1400(?=/)", re.I)
 VIEWS = re.compile(r"([\d,]+)\s*Views?(?:\s*(Top\s*[\d.]+%))?", re.I)
 BOOKMARKS = re.compile(r"([\d,]+)\s*Bookmarks?", re.I)
 RELATED = re.compile(r"([\d,]+)\s*Related\s*papers?", re.I)
@@ -147,7 +152,7 @@ def parse(text: str):
             "authors": authors,
             "year": year,
             "doi": doi,
-            "github": gh.group(0).rstrip("/.") if gh else None,
+            "github": OLD_OWNER.sub(r"\1AwenGrid", gh.group(0).rstrip("/.")) if gh else None,
             "abstract": abstract,
             "views": num(v.group(1)) if v else None,
             "badge": (v.group(2).strip() if v and v.group(2) else None),

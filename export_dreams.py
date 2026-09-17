@@ -182,7 +182,7 @@ def main():
 
     A("---\n")
     A("*Generated from {} ping records by the Awen Engine — "
-      "github.com/OwainGlyndwr1400/awen-engine*\n".format(len(dreams)))
+      "github.com/AwenGrid/awen-engine*\n".format(len(dreams)))
 
     out = ROOT / args.out
     out.write_text("\n".join(L), encoding="utf-8")
