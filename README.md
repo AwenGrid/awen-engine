@@ -227,6 +227,8 @@ Chat now runs on a live SSE wire (`/api/chat_stream`). You watch the persona spe
 
 Every panel used to be read-only. Five buttons now drive real mechanisms: **FLUSH** (write dirty FAISS indices to disk now — what a clean shutdown does), **DREAM NOW** (the engine's inter-dream sleep became an interruptible wake event; the RAM-safeguard pause deliberately stays uninterruptible), **REFRESH** on the aether feeds (drop the cache, poll live), **PREVIEW** on the forecast (compute the full call *below* the charge gate — labelled a what-if, never persisted, never cached, never in the scoreable record), and **RESET** on the ZPE state machine.
 
+**A sixth (v2.5) — HOLD DREAMS.** A switch in the chat bar, beside MEM and ☁. On, the engine stops dreaming on its timer, so the one local model is the operator's alone while he talks; off, it dreams again. The switch is painted from the engine's own `/stats` on every poll, never from the last click, so it cannot drift from the truth — restart the deck mid-hold and it still reads held. The engine has one hold flag and two hands that can reach it, so each remembers only its own claim: a manual hold survives a Council ending, and a sitting Council's hold survives an unclick until it closes. The dream feed names whoever is holding. And while dreams are held, **DREAM NOW** says so instead of promising a dream that will not come.
+
 ### The last synthetic panel, retired
 
 The cymatic strip was the deck's final `sin()` holdout. It now draws the **measured Schumann fundamental** as the standing wave it is — frequency and amplitude from the live reading, labelled with the numbers — and shows a flat line that says *NO SCHUMANN READING* when there isn't one. The harmonic-stack waveform's tone amplitudes are now the last six dreams' actual urgencies: a quiet grid shows a flat stack; a hot run makes it sing.
@@ -569,7 +571,8 @@ The deck adds its own on `127.0.0.1:7777`:
 | `GET /api/codex` | The Akashic Codex: theorem cards with equation-aware audit verdicts, dream coverage and emerging terms |
 | `POST /api/chat_stream` | Chat over Server-Sent Events: live tokens, tool-call events, per-turn token usage. `/api/chat` remains as the non-streaming fallback |
 | `POST /api/control/flush` | Write the engine's dirty FAISS indices to disk now |
-| `POST /api/control/dream_now` | Trip the engine's wake event — the next dream cycle starts immediately |
+| `POST /api/control/dream_now` | Trip the engine's wake event — the next dream cycle starts immediately (answers `held` while dreams are held) |
+| `POST /api/control/dream_hold` | The operator's dream switch: `{"hold": true}` stops the engine dreaming on its timer, `false` lets it dream again. A sitting Council's hold stands until it ends |
 | `POST /api/control/aether_refresh` | Invalidate the space-weather cache; the next poll reads the live feeds |
 | `GET /api/seismic_forecast?force=1` | Forced preview: the full forecast computed below the charge gate — labelled, never persisted, never cached |
 | `GET /api/council/state` | The live chamber: turns, the current speaker's streaming text and tool chips, queue, minutes, token totals |
@@ -581,7 +584,7 @@ The deck adds its own on `127.0.0.1:7777`:
 | `GET /api/tools` | What the Circle can reach for |
 | `GET /api/state` | Deck vitals: dream feed, engine stats, heartbeats, telemetry |
 
-Engine endpoints on `:5000` that joined the original set: `POST /dream_now` (sets the dream thread's wake event), `POST /dream_hold` · `/dream_release` (skip dream cycles while the Council sits; `/stats` reports `dream_held`), and `GET /chunk?profile=&idx=&node=` (resolve a search hit's address into its chunk, metadata and atlas cluster — same role gate as `/search`).
+Engine endpoints on `:5000` that joined the original set: `POST /dream_now` (sets the dream thread's wake event), `POST /dream_hold` · `/dream_release` (skip dream cycles while the Council sits or the operator's HOLD DREAMS switch is on; `/stats` reports `dream_held`), and `GET /chunk?profile=&idx=&node=` (resolve a search hit's address into its chunk, metadata and atlas cluster — same role gate as `/search`).
 
 ---
 

@@ -202,6 +202,10 @@ select{background:#0a1c2c; color:var(--cyan-soft); border:1px solid var(--panel-
   background:var(--dim); transition:left .2s, background .2s}
 .switch.on .track{background:rgba(57,230,255,.3)}
 .switch.on .knob{left:19px; background:var(--cyan); box-shadow:0 0 8px var(--cyan)}
+/* HOLD DREAMS reads amber when on: a paused engine must never pass for a quiet one */
+#holdswitch.on{color:#f5b95e}
+#holdswitch.on .track{background:rgba(245,185,94,.28)}
+#holdswitch.on .knob{background:#f5b95e; box-shadow:0 0 8px #f5b95e}
 
 /* ---------- right rail ---------- */
 #right{grid-area:right}
@@ -340,6 +344,7 @@ canvas.spark{width:100%; height:34px; display:block; margin:2px 0 4px}
       <div class="crow">
         <label class="switch on" id="memswitch" title="inject resonant memories"><span class="track"><span class="knob"></span></span>MEM</label>
         <label class="switch" id="cloudswitch" title="route chat + dreams through NVIDIA API"><span class="track"><span class="knob"></span></span>☁</label>
+        <label class="switch" id="holdswitch" title="hold the dream cycle — the engine will not dream on its timer while this is on"><span class="track"><span class="knob"></span></span>HOLD DREAMS</label>
       </div>
     </div>
     <textarea id="msgbox" rows="2" placeholder="speak to the grid…  (Enter to send · Shift+Enter newline · /commands work)"></textarea>
@@ -655,6 +660,31 @@ $('cloudswitch').onclick=async()=>{
   sysMsg(cloudOn?(r.ready?'☁ cloud mind armed — chat + dreams via NVIDIA':'☁ switch on, but key/model missing — staying local'):'🏠 back to the local mind');
 };
 
+/* HOLD DREAMS — click: the engine stops dreaming on its timer; unclick: it
+   dreams again. The switch is painted from the engine's own /stats on every
+   poll, never from what was last clicked, so it cannot drift from the truth. */
+let holdBusy=false;
+function holdWhy(st){ const h=st.dream_hold||{};
+  return h.council&&h.operator?'council in session + your HOLD switch':h.council?'council in session'
+        :h.operator?'your HOLD switch':'a hold left set on the engine'; }
+function paintHold(st){
+  if(holdBusy||!st.stats) return;
+  const held=!!st.stats.dream_held;
+  $('holdswitch').classList.toggle('on',held);
+  $('holdswitch').title=held?('dreams held — '+holdWhy(st)+' · click to let the engine dream again')
+    :'hold the dream cycle — the engine will not dream on its timer while this is on';
+}
+$('holdswitch').onclick=async()=>{
+  if(holdBusy) return; holdBusy=true;
+  const want=!$('holdswitch').classList.contains('on');
+  try{
+    const r=await (await fetch('/api/control/dream_hold',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({hold:want})})).json();
+    if(r.held!=null) $('holdswitch').classList.toggle('on',!!r.held);
+    sysMsg((r.status==='success'?(r.held?'⏸ ':'🌙 '):'⚠ hold: ')+(r.message||'failed'));
+  }catch(e){ sysMsg('⚠ hold: '+e); }
+  finally{ holdBusy=false; }
+};
+
 function addMsg(cls,html){ const d=document.createElement('div'); d.className='msg '+cls; d.innerHTML=html;
   $('chatscroll').appendChild(d); $('chatscroll').scrollTop=1e9; return d; }
 function sysMsg(t){ addMsg('sys',esc(t)); }
@@ -826,6 +856,7 @@ async function poll(){
     lamp('lamp-echo', st.echo&&(Date.now()/1000-(st.echo.timestamp||0))<60?'on':'err');
     lamp('lamp-soul', st.soul&&(Date.now()/1000-(st.soul.timestamp||0))<120?'on':'');
     lamp('lamp-cloud', st.nvidia.enabled?(st.nvidia.ready?'on':'warn'):'');
+    paintHold(st);
     if(st.stats&&st.stats.profiles){
       let total=0, rows='';
       for(const [name,p] of Object.entries(st.stats.profiles)){
@@ -912,7 +943,7 @@ async function poll(){
 
     const feed=$('dreams');
     $('dreamcount').textContent=(st.dream_total!=null?st.dream_total:st.dreams.length)+' sigils'
-      +((st.stats&&st.stats.dream_held)?' · ⚭ DREAMS HELD — council in session':'');
+      +((st.stats&&st.stats.dream_held)?' · ⚭ DREAMS HELD — '+holdWhy(st):'');
     feed.innerHTML=st.dreams.map(d=>{
       const isNew=!seenDreams.has(d.file);
       /* a new dream is good news — red stays reserved for real alerts */

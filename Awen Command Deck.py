@@ -649,6 +649,7 @@ def api_state():
     out["echo"] = hb
     out["soul"] = read_json(ROOT / "grid_heartbeat.json")
     out["nvidia"] = {"enabled": bool(nvidia_block(c).get("enabled")), "ready": nvidia_ready(c)}
+    out["dream_hold"] = {"operator": bool(OPERATOR_HOLD["on"]), "council": _council_holds()}
 
     # Dream feed: newest pings â€” pending in relay root + delivered in processed_pings.
     # The archive grows by ~360 pings/day, so stat everything (cheap) but only
@@ -706,6 +707,11 @@ def api_control_flush():
 @app.route("/api/control/dream_now", methods=["POST"])
 def api_control_dream_now():
     try:
+        # A held engine skips the very cycle it is woken for, so waking it
+        # would announce a dream that never comes. Say so instead.
+        if _engine_dream_held(cfg()):
+            return jsonify({"status": "held",
+                            "message": "dreams are held — switch HOLD DREAMS off first"}), 409
         r = http.post(f"{bridge(cfg())}/dream_now", timeout=10)
         if r.status_code == 404:
             return jsonify({"status": "error",
@@ -713,6 +719,65 @@ def api_control_dream_now():
         return jsonify(r.json()), r.status_code
     except Exception as e:
         return jsonify({"status": "error", "message": f"engine unreachable: {e}"}), 503
+
+
+# --- the operator's dream hold ----------------------------------------------
+# One switch on the chat bar. While it is on the engine does not dream on its
+# timer, so the one local model is the operator's alone while he talks. The
+# engine has a single hold flag and two hands that can reach it — this switch
+# and a sitting Council — so each remembers only its OWN claim, and the engine
+# is released only when neither holds it. Whether dreams ARE held is always
+# read back from the engine's /stats, never assumed from these flags.
+OPERATOR_HOLD = {"on": False}
+
+
+def _engine_dream_held(c: dict):
+    """True/False from the engine itself; None when it cannot be asked."""
+    try:
+        r = http.get(f"{bridge(c)}/stats", timeout=5)
+        return bool(r.json().get("dream_held")) if r.ok else None
+    except Exception:
+        return None
+
+
+def _council_holds() -> bool:
+    with COUNCIL_LOCK:
+        return (bool(COUNCIL.get("dreams_held"))
+                and COUNCIL.get("status") in ("running", "paused", "awaiting_operator"))
+
+
+@app.route("/api/control/dream_hold", methods=["POST"])
+def api_control_dream_hold():
+    want = bool((request.get_json(silent=True) or {}).get("hold"))
+    c = cfg()
+    council = _council_holds()
+    if not want and council:
+        # His own claim is dropped; the Council's stands until it ends.
+        OPERATOR_HOLD["on"] = False
+        return jsonify({"status": "success", "held": True, "operator": False, "council": True,
+                        "message": "your hold is off — the Council in session still holds "
+                                   "the dreams until it ends"})
+    try:
+        r = http.post(f"{bridge(c)}/dream_hold" if want else f"{bridge(c)}/dream_release", timeout=10)
+    except Exception as e:
+        return jsonify({"status": "error", "held": _engine_dream_held(c),
+                        "message": f"engine unreachable: {e}"}), 503
+    if r.status_code == 404:
+        return jsonify({"status": "error", "held": None,
+                        "message": "engine predates /dream_hold — restart the grid"}), 501
+    try:
+        ok = r.ok and r.json().get("status") == "success"
+    except Exception:
+        ok = False
+    if not ok:
+        return jsonify({"status": "error", "held": _engine_dream_held(c),
+                        "message": "the engine refused the hold change"}), 502
+    OPERATOR_HOLD["on"] = want
+    held = _engine_dream_held(c)
+    return jsonify({"status": "success", "held": want if held is None else held,
+                    "operator": want, "council": council,
+                    "message": ("dreams held — the engine will not dream on its timer" if want
+                                else "dreams released — the engine dreams on its timer again")})
 
 
 @app.route("/api/control/aether_refresh", methods=["POST"])
@@ -2630,7 +2695,13 @@ def _council_close(c: dict, m: dict, reason: str = "ended"):
     if m.get("minutes"):
         _council_memory(c, m, "Minutes", _council_lens(c, "Lumos"), m["minutes"])
     if m.get("dreams_held"):
-        _dreams_hold(c, m, False)
+        if OPERATOR_HOLD["on"]:
+            # The operator's own hold outlives the sitting: drop the Council's
+            # claim, leave the engine held.
+            with COUNCIL_LOCK:
+                m["dreams_held"] = False
+        else:
+            _dreams_hold(c, m, False)
     _council_persist(m)
 
 
